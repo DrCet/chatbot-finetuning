@@ -1,5 +1,6 @@
 import logging
 import os
+from pyexpat import model
 import sys
 import math
 import shutil
@@ -23,6 +24,7 @@ from tqdm.auto import tqdm
 import transformers
 from transformers import (
     AutoTokenizer,
+    AutoConfig,
     AutoModelForCausalLM,
     AutoModelForSeq2SeqLM,
     HfArgumentParser,
@@ -49,6 +51,10 @@ class ModelArguments:
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
 
+    model_type: str = field(
+        default="causal-lm",
+        metadata={"help": "Model type to use (causal-lm or seq2seq)"}
+    )
     tokenizer_name: Optional[str] = field(
         default=None,
         metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
@@ -86,15 +92,6 @@ class ModelArguments:
                 "Whether or not to allow for custom models defined on the Hub in their own modeling files. This option"
                 "should only be set to `True` for repositories you trust and in which you have read the code, as it will"
                 "execute code present on the Hub on your local machine."
-            )
-        },
-    )
-    override_speaker_embeddings: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "If `True` and if `speaker_id_column_name` is specified, it will replace current speaker embeddings with a new set of speaker embeddings."
-                "If the model from the checkpoint didn't have speaker embeddings, it will initialize speaker embeddings."
             )
         },
     )
@@ -194,7 +191,7 @@ class DataTrainingArguments:
             )
         },
     )
-
+    
     source_column_name: Optional[str] = field(
         default=None,
         metadata={"help": "Column name for source/input text (used for Seq2SeqLM)."},
@@ -209,7 +206,7 @@ class DataTrainingArguments:
         default=None,
         metadata={"help": "Column name for full input text (used for CausalLM)."},
     )
-
+    
     max_tokens_length: float = field(
         default=512,
         metadata={"help": "Truncate texts longer than this many tokens."},
@@ -223,11 +220,6 @@ class DataTrainingArguments:
     do_lower_case: bool = field(
         default=False,
         metadata={"help": "Lowercase the input text."},
-    )
-
-    do_normalize: bool = field(
-        default=False,
-        metadata={"help": "Normalize input waveform if applicable."},
     )
 
     train_split_name: str = field(
@@ -293,5 +285,225 @@ class DataCollatorForLanguageModeling:
 
         return model_inputs
 
+def log_text_predictions(trackers, inputs, generated_texts, target_texts, epoch):
+    for tracker in trackers:
+        if tracker.name == "tensorboard":
+            for i in range(min(len(inputs), 10)):
+                tracker.writer.add_text(
+                    f"sample_{i}", f"Input: {inputs[i]}\nTarget: {target_texts[i]}\nOutput: {generated_texts[i]}", epoch
+                )
+        elif tracker.name == "wandb":
+            tracker.log(
+                {
+                    "text_predictions": [
+                        wandb.Html(
+                            f"<b>Input:</b> {inputs[i]}<br><b>Target:</b> {target_texts[i]}<br><b>Output:</b> {generated_texts[i]}"
+                        )
+                        for i in range(min(len(inputs), 10))
+                    ]
+                }
+            )
+def main():
+
+    # 1. Parse input arguments
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, LMTrainingArguments))
+
+    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
+        # Parse arguments from JSON file
+        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    else:
+        # Parse from command line arguments
+        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+    # Telemetry (optional)
+    send_example_telemetry("run_seq2seq_finetuning", model_args, data_args)
+
+    # 2. Setup logging
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    log_level = training_args.get_process_log_level()
+    logger.setLevel(log_level)
+    datasets.utils.logging.set_verbosity(log_level)
+    transformers.utils.logging.set_verbosity(log_level)
+    transformers.utils.logging.enable_default_handler()
+    transformers.utils.logging.enable_explicit_format()
+
+    logger.setLevel(logging.INFO if is_main_process(training_args.local_rank) else logging.WARN)
+
+    # Log on each process the small summary:
+    logger.warning(
+        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
+        f"distributed training: {training_args.parallel_mode.value == 'distributed'}, 16-bits training: {training_args.fp16}"
+    )
+    logger.info(f"Training/evaluation parameters {training_args}")
+
+    # Set the verbosity to info of the Transformers logger (on main process only):
+    if is_main_process(training_args.local_rank):
+        transformers.utils.logging.set_verbosity_info()
+    logger.info("Training/evaluation parameters %s", training_args)
+
+    # 3. Detecting last checkpoint and eventually continue from last checkpoint
+    last_checkpoint = None
+    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
+        last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
+            raise ValueError(
+                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
+                "Use --overwrite_output_dir to overcome."
+            )
+        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
+            logger.info(
+                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
+                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
+            )
+
+    # Set seed before initializing model.
+    set_seed(training_args.seed)
+
+
+    # 4. Load dataset
+    raw_datasets = DatasetDict()
+
+    # Load training dataset
+    if training_args.do_train:
+        raw_datasets["train"] = load_dataset(
+            data_args.dataset_name,
+            data_args.dataset_config_name,
+            split=data_args.train_split_name,
+            cache_dir=model_args.cache_dir,
+            token=model_args.token,
+        )
+
+    # Load evaluation dataset
+    if training_args.do_eval:
+        raw_datasets["eval"] = load_dataset(
+            data_args.dataset_name,
+            data_args.dataset_config_name,
+            split=data_args.eval_split_name,
+            cache_dir=model_args.cache_dir,
+            token=model_args.token,
+        )
+
+    # For CausalLM, make sure text_column_name exists
+    if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
+        raise ValueError(
+            f"--text_column_name {data_args.text_column_name} not found in dataset '{data_args.dataset_name}'. "
+            "Make sure to set `--text_column_name` to the correct text column - one of "
+            f"{', '.join(next(iter(raw_datasets.values())).column_names)}."
+        )
+
+    # For Seq2SeqLM, make sure source and target columns exist
+    if data_args.source_column_name is not None and data_args.source_column_name not in next(iter(raw_datasets.values())).column_names:
+        raise ValueError(
+            f"--source_column_name {data_args.source_column_name} not found in dataset '{data_args.dataset_name}'. "
+            "Make sure to set `--source_column_name` to the correct source column - one of "
+            f"{', '.join(next(iter(raw_datasets.values())).column_names)}."
+        )
+
+    if data_args.target_column_name is not None and data_args.target_column_name not in next(iter(raw_datasets.values())).column_names:
+        raise ValueError(
+            f"--target_column_name {data_args.target_column_name} not found in dataset '{data_args.dataset_name}'. "
+            "Make sure to set `--target_column_name` to the correct target column - one of "
+            f"{', '.join(next(iter(raw_datasets.values())).column_names)}."
+        )
+
+    # 5. Load tokenizer and config
+    if model_args.model_name_or_path:
+        # Load configuration from pre-trained model or custom path
+        config = AutoConfig.from_pretrained(
+            model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            token=model_args.token,
+            trust_remote_code=model_args.trust_remote_code,
+        )
+
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        use_fast=model_args.use_fast_tokenizer,
+        revision=model_args.model_revision,
+        token=model_args.token,
+        trust_remote_code=model_args.trust_remote_code,
+        verbose=False,
+    )
+
+    if model_args.model_type == "causal-lm":
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    elif model_args.model_type == "seq2seq":
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_args.model_name_or_path,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    # 6. Preprocess the datasets
+    with training_args.main_process_first():
+        if data_args.max_train_samples is not None:
+            raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
+
+        if data_args.max_eval_samples is not None:
+            raw_datasets["eval"] = raw_datasets["eval"].select(range(data_args.max_eval_samples)) 
+    def prepare_dataset(batch):
+        model_inputs = {}
+        if data_args.model_type == 'causal-lm':
+            texts = batch[data_args.text_column_name]
+            if data_args.do_lower_case:
+                texts = [text.lower() for text in texts]
+            model_inputs["input_ids"] = [texts[i] for i in range(len(texts))]
+            
+        else:
+            sources = batch[data_args.source_column_name]
+            targets = batch[data_args.target_column_name]
+            model_inputs["input_ids"] = [sources[i] for i in range(len(sources))]
+            model_inputs["labels"] = [targets[i] for i in range(len(targets))] 
+        return model_inputs
+    remove_columns = raw_datasets['train'].column_names
+    with training_args.main_process_first(desc="dataset map pre-processing"):
+        vectorized_datasets = vectorized_datasets.map(
+            prepare_dataset,
+            remove_columns=remove_columns,
+            num_proc=data_args.num_workers,
+            desc="preprocess train dataset",
+        )
+    if data_args.preprocessing_only:
+        cache = {k: v.cache_files for k, v in vectorized_datasets.items()}
+        logger.info(f"Data preprocessing finished. Files cached at {cache}.")
+        return
+
+    #7. Load pretrained model
+    if model_args.model_type == "causal-lm":
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            config=config,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,  # Fixed typo
+            token=model_args.token,
+            trust_remote_code=model_args.trust_remote_code,
+        )
+    elif model_args.model_type == "seq2seq":
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_args.model_name_or_path,
+            config=config,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            token=model_args.token,
+            trust_remote_code=model_args.trust_remote_code,
+        )
+    else:
+        raise ValueError(f"Unsupported model_type: {model_args.model_type}. Must be 'causal-lm' or 'seq2seq'.")
+
+    # Resize token embeddings if override_vocabulary_embeddings is set
+    if model_args.override_vocabulary_embeddings:
+        new_num_tokens = len(tokenizer)
+        logger.info(f"Resizing token embeddings to {new_num_tokens} to match tokenizer vocabulary.")
+        model.resize_token_embeddings(new_num_tokens)
 
 print(f'{__file__} passed')
