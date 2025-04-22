@@ -4,7 +4,6 @@ import os
 import sys
 import math
 import shutil
-import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
@@ -17,7 +16,6 @@ from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import ProjectConfiguration, set_seed, is_wandb_available
 from datasets import DatasetDict, load_dataset
 from wandb import config
-# from monotonic_align import maximum_path
 from tqdm.auto import tqdm
 
 
@@ -41,6 +39,7 @@ from transformers.utils import send_example_telemetry
 if is_wandb_available():
     import wandb
 
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=False)
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -548,5 +547,234 @@ def main():
         input_str = data_args.full_generation_sample_text
         full_generation_sample = tokenizer(input_str, return_tensors="pt")
 
+    # 11. Set up accelerate
+    project_name = data_args.project_name
+    train_dataset = vectorized_datasets["train"]
+    eval_dataset = vectorized_datasets.get("eval", None)
+
+    # inspired from https://github.com/huggingface/diffusers/blob/main/examples/text_to_image/train_text_to_image.py
+    # and https://github.com/huggingface/community-events/blob/main/huggan/pytorch/cyclegan/train.py
+
+    logging_dir = os.path.join(training_args.output_dir, training_args.logging_dir)
+    accelerator_project_config = ProjectConfiguration(project_dir=training_args.output_dir, logging_dir=logging_dir)
+
+    accelerator = Accelerator(
+        gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+        log_with=training_args.report_to,
+        project_config=accelerator_project_config,
+        kwargs_handlers=[ddp_kwargs],
+    )
+
+    per_device_train_batch_size = (
+        training_args.per_device_train_batch_size if training_args.per_device_train_batch_size else 1
+    )
+    total_batch_size = (
+        per_device_train_batch_size * accelerator.num_processes * training_args.gradient_accumulation_steps
+    )
+
+    if training_args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+
+    # 12. Define train_dataloader and eval_dataloader if relevant
+    train_dataloader = None
+    if training_args.do_train:
+        sampler = (
+            LengthGroupedSampler(
+                batch_size=per_device_train_batch_size,
+                dataset=train_dataset,
+                lengths=train_dataset["tokens_input_length"],
+            )
+            if training_args.group_by_length
+            else None
+        )
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset,
+            shuffle=not training_args.group_by_length,
+            collate_fn=data_collator,
+            batch_size=training_args.per_device_train_batch_size,
+            num_workers=training_args.dataloader_num_workers,
+            sampler=sampler,
+        )
+
+    eval_dataloader = None
+    if training_args.do_eval:
+        eval_sampler = (
+            LengthGroupedSampler(
+                batch_size=training_args.per_device_eval_batch_size,
+                dataset=eval_dataset,
+                lengths=eval_dataset["tokens_input_length"],
+            )
+            if training_args.group_by_length
+            else None
+        )
+
+        eval_dataloader = torch.utils.data.DataLoader(
+            eval_dataset,
+            shuffle=False,
+            collate_fn=data_collator,
+            batch_size=training_args.per_device_eval_batch_size,
+            num_workers=training_args.dataloader_num_workers,
+            sampler=eval_sampler,
+        )
+    # Scheduler and math around the number of training steps.
+    overrode_max_train_steps = False
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / training_args.gradient_accumulation_steps)
+    if training_args.max_steps == -1:
+        training_args.max_steps = training_args.num_train_epochs * num_update_steps_per_epoch
+        overrode_max_train_steps = True
+
+    # We need to recalculate our total training steps as the size of the training dataloader may have changed.
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / training_args.gradient_accumulation_steps)
+    if overrode_max_train_steps:
+        training_args.max_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
+    # Afterwards we recalculate our number of training epochs
+    training_args.num_train_epochs = math.ceil(training_args.max_steps / num_update_steps_per_epoch)
+
+    # Init optimizer
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        training_args.learning_rate,
+        betas=[training_args.adam_beta1, training_args.adam_beta2],
+        eps=training_args.adam_epsilon,
+    )
+    num_warmups_steps = (
+        training_args.get_warmup_steps(training_args.num_train_epochs * accelerator.num_processes)
+        if training_args.do_step_schedule_per_epoch
+        else training_args.get_warmup_steps(training_args.max_steps * accelerator.num_processes)
+    )
+    num_training_steps = (
+        training_args.num_train_epochs * accelerator.num_processes
+        if training_args.do_step_schedule_per_epoch
+        else training_args.max_steps * accelerator.num_processes
+    )
+
+    if training_args.do_step_schedule_per_epoch:
+        lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            optimizer, gamma=training_args.lr_decay, last_epoch=-1
+        )
+    else:
+        lr_scheduler = get_scheduler(
+            training_args.lr_scheduler_type,
+            optimizer=optimizer,
+            num_warmup_steps=num_warmups_steps if training_args.warmup_steps > 0 else 0,
+            num_training_steps=num_training_steps,
+        )
+    # Prepare everything with our `accelerator`.
+    (
+        model,
+        optimizer,
+        lr_scheduler,
+        train_dataloader,
+        eval_dataloader,
+    ) = accelerator.prepare(
+        model,
+        optimizer,
+        lr_scheduler,
+        train_dataloader,
+        eval_dataloader,
+    )
+
+    # We need to initialize the trackers we use, and also store our configuration.
+    # The trackers initializes automatically on the main process.
+    if accelerator.is_main_process:
+        tracker_config = training_args.to_sanitized_dict()
+        accelerator.init_trackers(project_name, tracker_config)
+    # Train!
+    logger.info("***** Running training *****")
+    logger.info(f"  Num examples = {len(train_dataset)}")
+    logger.info(f"  Num Epochs = {training_args.num_train_epochs}")
+    logger.info(f"  Instantaneous batch size per device = {per_device_train_batch_size}")
+    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(f"  Gradient Accumulation steps = {training_args.gradient_accumulation_steps}")
+    logger.info(f"  Total optimization steps = {training_args.max_steps}")
+    global_step = 0
+    first_epoch = 0
+
+    # Potentially load in the weights and states from a previous save
+    if training_args.resume_from_checkpoint:
+        if training_args.resume_from_checkpoint != "latest":
+            path = os.path.basename(training_args.resume_from_checkpoint)
+        else:
+            # Get the most recent checkpoint
+            dirs = os.listdir(training_args.output_dir)
+            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+            path = dirs[-1] if len(dirs) > 0 else None
+
+        if path is None:
+            accelerator.print(
+                f"Checkpoint '{training_args.resume_from_checkpoint}' does not exist. Starting a new training run."
+            )
+            training_args.resume_from_checkpoint = None
+            initial_global_step = 0
+        else:
+            accelerator.print(f"Resuming from checkpoint {path}")
+            accelerator.load_state(os.path.join(training_args.output_dir, path))
+            global_step = int(path.split("-")[1])
+
+            initial_global_step = global_step
+            first_epoch = global_step // num_update_steps_per_epoch
+
+    else:
+        initial_global_step = 0
+
+    progress_bar = tqdm(
+        range(0, training_args.max_steps),
+        initial=initial_global_step,
+        desc="Steps",
+        # Only show the progress bar once on each machine.
+        disable=not accelerator.is_local_main_process,
+    )
+
+
+    for epoch in range(first_epoch, training_args.num_train_epochs):
+        model.train()
+        for step, batch in enumerate(train_dataloader):
+            with accelerator.accumulate(model):
+                # Forward pass
+                outputs = model(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                    labels=batch["labels"],
+                    return_dict=True,
+                )
+                loss = outputs.loss
+                accelerator.backward(loss)
+                optimizer.step()
+                optimizer.zero_grad()
+
+            # Update scheduler and log
+            if accelerator.sync_gradients:
+                lr_scheduler.step()
+                accelerator.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
+                global_step += 1
+
+            # Check max steps
+            if global_step >= training_args.max_steps:
+                break
+        if training_args.do_eval and eval_dataloader:
+            model.eval()
+            total_eval_loss = 0
+            num_batches = 0
+            for step, batch in enumerate(eval_dataloader):
+                with torch.no_grad():
+                    outputs = model(
+                        input_ids=batch["input_ids"],
+                        attention_mask=batch["attention_mask"],
+                        labels=batch["labels"],
+                        return_dict=True,
+                    )
+                    val_loss = outputs.loss
+                    total_eval_loss += accelerator.reduce(val_loss).item()
+                    num_batches += 1
+            avg_eval_loss = total_eval_loss / num_batches
+            accelerator.log({"eval_loss": avg_eval_loss, "epoch": epoch}, step=global_step)
+
+            # Save checkpoint
+        if training_args.save_steps > 0 and global_step % training_args.save_steps == 0:
+                accelerator.save_state(os.path.join(training_args.output_dir, f"checkpoint-{global_step}"))
+
+        if global_step >= training_args.max_steps:
+            break
 
 print(f'{__file__} passed')
