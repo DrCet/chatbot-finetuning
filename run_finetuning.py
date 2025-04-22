@@ -1,6 +1,6 @@
 import logging
+from operator import is_
 import os
-from pyexpat import model
 import sys
 import math
 import shutil
@@ -445,6 +445,7 @@ def main():
             cache_dir=model_args.cache_dir,
         )
     # 6. Preprocess the datasets
+    forward_attention_mask = True
     with training_args.main_process_first():
         if data_args.max_train_samples is not None:
             raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
@@ -457,17 +458,36 @@ def main():
             texts = batch[data_args.text_column_name]
             if data_args.do_lower_case:
                 texts = [text.lower() for text in texts]
-            model_inputs["input_ids"] = [texts[i] for i in range(len(texts))]
+            tokenized = tokenizer(
+                texts,
+                truncation=True,
+                max_length=data_args.max_tokens_length,
+                return_tensors="pt",
+            )
+            model_inputs["input_ids"] = tokenized["input_ids"]
             
         else:
             sources = batch[data_args.source_column_name]
-            targets = batch[data_args.target_column_name]
-            model_inputs["input_ids"] = [sources[i] for i in range(len(sources))]
-            model_inputs["labels"] = [targets[i] for i in range(len(targets))] 
+            targets = batch[data_args.target_column_name] 
+            tokenized_inputs = tokenizer(
+                sources,
+                truncation=True,
+                max_length=data_args.max_tokens_length,
+                return_tensors="pt",
+            )
+            tokenized_labels = tokenizer(
+                targets,
+                truncation=True,
+                max_length=data_args.max_tokens_length,
+                return_tensors="pt",
+            )
+            model_inputs["input_ids"] = tokenized_inputs["input_ids"]
+            model_inputs["labels"] = tokenized_labels["input_ids"]
         return model_inputs
+    
     remove_columns = raw_datasets['train'].column_names
     with training_args.main_process_first(desc="dataset map pre-processing"):
-        vectorized_datasets = vectorized_datasets.map(
+        vectorized_datasets = raw_datasets.map(
             prepare_dataset,
             remove_columns=remove_columns,
             num_proc=data_args.num_workers,
@@ -501,9 +521,32 @@ def main():
         raise ValueError(f"Unsupported model_type: {model_args.model_type}. Must be 'causal-lm' or 'seq2seq'.")
 
     # Resize token embeddings if override_vocabulary_embeddings is set
-    if model_args.override_vocabulary_embeddings:
-        new_num_tokens = len(tokenizer)
-        logger.info(f"Resizing token embeddings to {new_num_tokens} to match tokenizer vocabulary.")
-        model.resize_token_embeddings(new_num_tokens)
+    with training_args.main_process_first(desc="resize token embeddings"):
+        if model_args.override_vocabulary_embeddings:
+            new_num_tokens = len(tokenizer)
+            logger.info(f"Resizing token embeddings to {new_num_tokens} to match tokenizer vocabulary.")
+            model.resize_token_embeddings(new_num_tokens)
+
+    # 9. Save configs
+    # make sure all processes wait until data is saved
+    with training_args.main_process_first():
+        # only the main process saves them
+        if is_main_process(training_args.local_rank):
+            # save feature extractor, tokenizer and config
+            tokenizer.save_pretrained(training_args.output_dir)
+            config.save_pretrained(training_args.output_dir)
+
+    # 10. Define data collator
+    is_seq2seq = model_args.model_type == "seq2seq"
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        is_seq2seq=is_seq2seq,
+        forward_attention_mask=forward_attention_mask,
+    )
+
+    with training_args.main_process_first():
+        input_str = data_args.full_generation_sample_text
+        full_generation_sample = tokenizer(input_str, return_tensors="pt")
+
 
 print(f'{__file__} passed')
