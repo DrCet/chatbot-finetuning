@@ -1,21 +1,17 @@
 import logging
-from operator import is_
 import os
 import sys
 import math
-import shutil
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import  Dict, List, Optional, Union
 
 import datasets
-import numpy as np
 import torch
 import os
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import ProjectConfiguration, set_seed, is_wandb_available
 from datasets import DatasetDict, load_dataset
-from wandb import config
 from tqdm.auto import tqdm
 
 
@@ -29,7 +25,6 @@ from transformers import (
     TrainingArguments,
 )
 
-from transformers.feature_extraction_utils import BatchFeature
 from transformers.optimization import get_scheduler
 from transformers.trainer_pt_utils import LengthGroupedSampler
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
@@ -802,4 +797,5 @@ def main():
 
     logger.info("***** Training / Inference Done *****")
 
-print(f'{__file__} passed')
+if __name__ == "__main__":
+    main()
