@@ -104,15 +104,13 @@ class ModelArguments:
 class LMTrainingArguments(TrainingArguments):
 
     predict_with_generate: bool = field(
-    default=True,
-    metadata={"help": "Use generate() method for evaluation (important for Seq2SeqLM)."}
+        default=True,
+        metadata={"help": "Use generate() method for evaluation (important for Seq2SeqLM)."}
     )
-
     generation_max_length: Optional[int] = field(
         default=256,
         metadata={"help": "Max length for sequence generation during evaluation."}
     )
-
     generation_num_beams: Optional[int] = field(
         default=4,
         metadata={"help": "Beam width for generation."}
@@ -123,11 +121,15 @@ class LMTrainingArguments(TrainingArguments):
             "help": (
                 "Whether or not to perform scheduler steps per epoch or per steps. If `True`, the scheduler will be `ExponentialLR` parametrized with `lr_decay`."
             )
-        },
+        }
     )
     lr_decay: float = field(
         default=0.999875,
-        metadata={"help": "Learning rate decay, used with `ExponentialLR` when `do_step_schedule_per_epoch`."},
+        metadata={"help": "Learning rate decay, used with `ExponentialLR` when `do_step_schedule_per_epoch`."}
+    )
+    max_grad_norm: float = field(
+        default=1.0,
+        metadata={"help": "Max gradient norm for clipping."}
     )
 
 @dataclass
@@ -431,49 +433,55 @@ def main():
     with training_args.main_process_first():
         if data_args.max_train_samples is not None:
             raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
-
         if data_args.max_eval_samples is not None:
-            raw_datasets["eval"] = raw_datasets["eval"].select(range(data_args.max_eval_samples)) 
+            raw_datasets["eval"] = raw_datasets["eval"].select(range(data_args.max_eval_samples))
+
     def prepare_dataset(batch):
         model_inputs = {}
-        if data_args.model_type == 'causal-lm':
+        if data_args.model_type == "causal-lm":
             texts = batch[data_args.text_column_name]
             if data_args.do_lower_case:
                 texts = [text.lower() for text in texts]
             tokenized = tokenizer(
                 texts,
                 truncation=True,
-                max_length=data_args.max_tokens_length,
+                max_length=int(data_args.max_tokens_length),
                 return_tensors=None,
             )
             model_inputs["input_ids"] = tokenized["input_ids"]
-            
+            model_inputs["tokens_input_length"] = [len(ids) for ids in tokenized["input_ids"]]
         else:
             sources = batch[data_args.source_column_name]
-            targets = batch[data_args.target_column_name] 
+            targets = batch[data_args.target_column_name]
+            if data_args.do_lower_case:
+                sources = [source.lower() for source in sources]
+                targets = [target.lower() for target in targets]
             tokenized_inputs = tokenizer(
                 sources,
                 truncation=True,
-                max_length=data_args.max_tokens_length,
+                max_length=int(data_args.max_tokens_length),
                 return_tensors=None,
             )
             tokenized_labels = tokenizer(
                 targets,
                 truncation=True,
-                max_length=data_args.max_tokens_length,
+                max_length=int(data_args.max_tokens_length),
                 return_tensors=None,
             )
             model_inputs["input_ids"] = tokenized_inputs["input_ids"]
             model_inputs["labels"] = tokenized_labels["input_ids"]
+            model_inputs["tokens_input_length"] = [len(ids) for ids in tokenized_inputs["input_ids"]]
         return model_inputs
-    
-    remove_columns = raw_datasets['train'].column_names
+
+    remove_columns = raw_datasets["train"].column_names
     with training_args.main_process_first(desc="dataset map pre-processing"):
         vectorized_datasets = raw_datasets.map(
             prepare_dataset,
+            batched=True,
+            num_proc=data_args.processing_num_workers or os.cpu_count(),
             remove_columns=remove_columns,
-            num_proc=data_args.processing_num_workers,
-            desc="preprocess train dataset",
+            load_from_cache_file=not data_args.overwrite_cache,
+            desc="Preprocess train dataset",
         )
     if data_args.preprocessing_only:
         cache = {k: v.cache_files for k, v in vectorized_datasets.items()}
@@ -509,7 +517,7 @@ def main():
             logger.info(f"Resizing token embeddings to {new_num_tokens} to match tokenizer vocabulary.")
             model.resize_token_embeddings(new_num_tokens)
 
-    # 9. Save configs
+    # 8. Save configs
     # make sure all processes wait until data is saved
     with training_args.main_process_first():
         # only the main process saves them
@@ -518,7 +526,7 @@ def main():
             tokenizer.save_pretrained(training_args.output_dir)
             config.save_pretrained(training_args.output_dir)
 
-    # 10. Define data collator
+    # 9. Define data collator
     is_seq2seq = model_args.model_type == "seq2seq"
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
@@ -530,7 +538,7 @@ def main():
         input_str = data_args.full_generation_sample_text
         full_generation_sample = tokenizer(input_str, return_tensors="pt")
 
-    # 11. Set up accelerate
+    # 10. Set up accelerate
     project_name = data_args.project_name
     train_dataset = vectorized_datasets["train"]
     eval_dataset = vectorized_datasets.get("eval", None)
@@ -558,7 +566,7 @@ def main():
     if training_args.gradient_checkpointing:
         model.gradient_checkpointing_enable()
 
-    # 12. Define train_dataloader and eval_dataloader if relevant
+    # 11. Define train_dataloader and eval_dataloader
     train_dataloader = None
     if training_args.do_train:
         sampler = (
@@ -574,7 +582,7 @@ def main():
             train_dataset,
             shuffle=not training_args.group_by_length,
             collate_fn=data_collator,
-            batch_size=training_args.per_device_train_batch_size,
+            batch_size=per_device_train_batch_size,
             num_workers=training_args.dataloader_num_workers,
             sampler=sampler,
         )
@@ -590,7 +598,6 @@ def main():
             if training_args.group_by_length
             else None
         )
-
         eval_dataloader = torch.utils.data.DataLoader(
             eval_dataset,
             shuffle=False,
@@ -599,18 +606,17 @@ def main():
             num_workers=training_args.dataloader_num_workers,
             sampler=eval_sampler,
         )
-    # Scheduler and math around the number of training steps.
+
+    # Scheduler and training steps
     overrode_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / training_args.gradient_accumulation_steps)
     if training_args.max_steps == -1:
         training_args.max_steps = training_args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
-    # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / training_args.gradient_accumulation_steps)
     if overrode_max_train_steps:
         training_args.max_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
-    # Afterwards we recalculate our number of training epochs
     training_args.num_train_epochs = math.ceil(training_args.max_steps / num_update_steps_per_epoch)
 
     # Init optimizer
@@ -620,17 +626,9 @@ def main():
         betas=[training_args.adam_beta1, training_args.adam_beta2],
         eps=training_args.adam_epsilon,
     )
-    num_warmups_steps = (
-        training_args.get_warmup_steps(training_args.num_train_epochs * accelerator.num_processes)
-        if training_args.do_step_schedule_per_epoch
-        else training_args.get_warmup_steps(training_args.max_steps * accelerator.num_processes)
-    )
-    num_training_steps = (
-        training_args.num_train_epochs * accelerator.num_processes
-        if training_args.do_step_schedule_per_epoch
-        else training_args.max_steps * accelerator.num_processes
-    )
 
+    num_training_steps = training_args.max_steps * accelerator.num_processes
+    num_warmup_steps = training_args.get_warmup_steps(num_training_steps)
     if training_args.do_step_schedule_per_epoch:
         lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(
             optimizer, gamma=training_args.lr_decay, last_epoch=-1
@@ -639,41 +637,33 @@ def main():
         lr_scheduler = get_scheduler(
             training_args.lr_scheduler_type,
             optimizer=optimizer,
-            num_warmup_steps=num_warmups_steps if training_args.warmup_steps > 0 else 0,
+            num_warmup_steps=num_warmup_steps if training_args.warmup_steps > 0 else 0,
             num_training_steps=num_training_steps,
         )
-    # Prepare everything with our `accelerator`.
-    (
-        model,
-        optimizer,
-        lr_scheduler,
-        train_dataloader,
-        eval_dataloader,
-    ) = accelerator.prepare(
-        model,
-        optimizer,
-        lr_scheduler,
-        train_dataloader,
-        eval_dataloader,
+
+    # Prepare with accelerator
+    model, optimizer, lr_scheduler, train_dataloader, eval_dataloader = accelerator.prepare(
+        model, optimizer, lr_scheduler, train_dataloader, eval_dataloader
     )
 
-    # We need to initialize the trackers we use, and also store our configuration.
-    # The trackers initializes automatically on the main process.
+    # Initialize trackers
     if accelerator.is_main_process:
         tracker_config = training_args.to_sanitized_dict()
         accelerator.init_trackers(project_name, tracker_config)
-    # Train!
+
+    # Log training setup
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num Epochs = {training_args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {per_device_train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(f"  Total train batch size = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {training_args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {training_args.max_steps}")
+
     global_step = 0
     first_epoch = 0
 
-    # Potentially load in the weights and states from a previous save
+    # Handle checkpoint resumption
     if training_args.resume_from_checkpoint:
         if training_args.resume_from_checkpoint != "latest":
             path = os.path.basename(training_args.resume_from_checkpoint)
@@ -681,7 +671,6 @@ def main():
             dirs = [d for d in os.listdir(training_args.output_dir) if d.startswith("checkpoint")]
             dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
             path = dirs[-1] if len(dirs) > 0 else None
-
         if path is None:
             accelerator.print(f"Checkpoint '{training_args.resume_from_checkpoint}' does not exist. Starting a new training run.")
             training_args.resume_from_checkpoint = None
@@ -699,13 +688,10 @@ def main():
         range(0, training_args.max_steps),
         initial=initial_global_step,
         desc="Steps",
-        # Only show the progress bar once on each machine.
         disable=not accelerator.is_local_main_process,
     )
 
-
-    for epoch in range(first_epoch, training_args.num_train_epochs):
-        # Step scheduler per epoch if specified
+    for epoch in range(first_epoch, int(training_args.num_train_epochs)):
         if training_args.do_step_schedule_per_epoch:
             lr_scheduler.step()
 
@@ -713,7 +699,6 @@ def main():
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(model):
-                # Forward pass
                 outputs = model(
                     input_ids=batch["input_ids"],
                     attention_mask=batch["attention_mask"],
@@ -727,7 +712,6 @@ def main():
                 optimizer.step()
                 optimizer.zero_grad()
 
-            # Update scheduler and log
             if accelerator.sync_gradients:
                 if not training_args.do_step_schedule_per_epoch:
                     lr_scheduler.step()
@@ -738,48 +722,94 @@ def main():
                 global_step += 1
                 progress_bar.update(1)
 
-            # Log step loss
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
 
-            # Check max steps
+            if global_step % training_args.eval_steps == 0 and training_args.do_eval and eval_dataloader:
+                logger.info("Running validation...")
+                model.eval()
+                total_eval_loss = 0
+                num_batches = 0
+                for step, batch in enumerate(eval_dataloader):
+                    with torch.no_grad():
+                        outputs = model(
+                            input_ids=batch["input_ids"],
+                            attention_mask=batch["attention_mask"],
+                            labels=batch["labels"],
+                            return_dict=True,
+                        )
+                        val_loss = outputs.loss
+                        total_eval_loss += accelerator.reduce(val_loss).item()
+                        num_batches += 1
+
+                    if model_args.model_type == "seq2seq" and training_args.predict_with_generate:
+                        generated_ids = model.generate(
+                            input_ids=batch["input_ids"],
+                            attention_mask=batch["attention_mask"],
+                            max_length=training_args.generation_max_length,
+                            num_beams=training_args.generation_num_beams,
+                        )
+                        generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+                        target_texts = tokenizer.batch_decode(batch["labels"], skip_special_tokens=True)
+                        inputs = tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=True)
+                        if accelerator.is_main_process:
+                            log_text_predictions(accelerator.trackers, inputs, generated_texts, target_texts, epoch)
+
+                avg_eval_loss = total_eval_loss / num_batches if num_batches > 0 else 0.0
+                accelerator.log({"eval_loss": avg_eval_loss, "epoch": epoch}, step=global_step)
+                model.train()
+
+            if training_args.save_steps > 0 and global_step % training_args.save_steps == 0:
+                if accelerator.is_main_process:
+                    if training_args.save_total_limit is not None:
+                        checkpoints = [d for d in os.listdir(training_args.output_dir) if d.startswith("checkpoint")]
+                        checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+                        if len(checkpoints) >= training_args.save_total_limit:
+                            for removing_checkpoint in checkpoints[:len(checkpoints) - training_args.save_total_limit + 1]:
+                                shutil.rmtree(os.path.join(training_args.output_dir, removing_checkpoint))
+                    save_path = os.path.join(training_args.output_dir, f"checkpoint-{global_step}")
+                    accelerator.save_state(save_path)
+                    logger.info(f"Saved state to {save_path}")
+
             if global_step >= training_args.max_steps:
                 break
 
-        # Evaluation
-        if training_args.do_eval and eval_dataloader:
-            logger.info("Running validation...")
-            model.eval()
-            total_eval_loss = 0
-            num_batches = 0
-            for step, batch in enumerate(eval_dataloader):
-                with torch.no_grad():
-                    outputs = model(
-                        input_ids=batch["input_ids"],
-                        attention_mask=batch["attention_mask"],
-                        labels=batch["labels"],
-                        return_dict=True,
-                    )
-                    val_loss = outputs.loss
-                    total_eval_loss += accelerator.reduce(val_loss).item()
-                    num_batches += 1
+        if global_step >= training_args.max_steps:
+            break
 
-                # Seq2Seq generation
-                if model_args.model_type == "seq2seq" and training_args.predict_with_generate:
-                    generated_ids = model.generate(
-                        input_ids=batch["input_ids"],
-                        attention_mask=batch["attention_mask"],
-                        max_length=training_args.generation_max_length,
-                        num_beams=training_args.generation_num_beams,
-                    )
-                    generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-                    target_texts = tokenizer.batch_decode(batch["labels"], skip_special_tokens=True)
-                    inputs = tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=True)
-                    if accelerator.is_main_process:
-                        log_text_predictions(accelerator.trackers, inputs, generated_texts, target_texts, epoch)
+    # Final evaluation
+    if training_args.do_eval and eval_dataloader:
+        logger.info("Running final validation...")
+        model.eval()
+        total_eval_loss = 0
+        num_batches = 0
+        for step, batch in enumerate(eval_dataloader):
+            with torch.no_grad():
+                outputs = model(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                    labels=batch["labels"],
+                    return_dict=True,
+                )
+                val_loss = outputs.loss
+                total_eval_loss += accelerator.reduce(val_loss).item()
+                num_batches += 1
 
-            avg_eval_loss = total_eval_loss / num_batches if num_batches > 0 else 0.0
-            accelerator.log({"eval_loss": avg_eval_loss, "epoch": epoch}, step=global_step)
+            if model_args.model_type == "seq2seq" and training_args.predict_with_generate:
+                generated_ids = model.generate(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                    max_length=training_args.generation_max_length,
+                    num_beams=training_args.generation_num_beams,
+                )
+                generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+                target_texts = tokenizer.batch_decode(batch["labels"], skip_special_tokens=True)
+                inputs = tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=True)
+                if accelerator.is_main_process:
+                    log_text_predictions(accelerator.trackers, inputs, generated_texts, target_texts, epoch)
+
+        avg_eval_loss = total_eval_loss / num_batches if num_batches > 0 else 0.0
+        accelerator.log({"final_eval_loss": avg_eval_loss}, step=global_step)
 
     # Save final model
     accelerator.wait_for_everyone()
@@ -791,7 +821,6 @@ def main():
             model.push_to_hub(training_args.hub_model_id)
 
     accelerator.end_training()
-    # 13. Push tokenizer
     if training_args.push_to_hub:
         tokenizer.push_to_hub(training_args.hub_model_id)
 
