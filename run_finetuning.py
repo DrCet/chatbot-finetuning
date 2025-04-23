@@ -431,18 +431,6 @@ def main():
         verbose=False,
     )
 
-    if model_args.model_type == "causal-lm":
-        model = AutoModelForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            config=config,
-            cache_dir=model_args.cache_dir,
-        )
-    elif model_args.model_type == "seq2seq":
-        model = AutoModelForSeq2SeqLM.from_pretrained(
-            model_args.model_name_or_path,
-            config=config,
-            cache_dir=model_args.cache_dir,
-        )
     # 6. Preprocess the datasets
     forward_attention_mask = True
     with training_args.main_process_first():
@@ -461,7 +449,7 @@ def main():
                 texts,
                 truncation=True,
                 max_length=data_args.max_tokens_length,
-                return_tensors="pt",
+                return_tensors=None,
             )
             model_inputs["input_ids"] = tokenized["input_ids"]
             
@@ -472,13 +460,13 @@ def main():
                 sources,
                 truncation=True,
                 max_length=data_args.max_tokens_length,
-                return_tensors="pt",
+                return_tensors=None,
             )
             tokenized_labels = tokenizer(
                 targets,
                 truncation=True,
                 max_length=data_args.max_tokens_length,
-                return_tensors="pt",
+                return_tensors=None,
             )
             model_inputs["input_ids"] = tokenized_inputs["input_ids"]
             model_inputs["labels"] = tokenized_labels["input_ids"]
@@ -489,7 +477,7 @@ def main():
         vectorized_datasets = raw_datasets.map(
             prepare_dataset,
             remove_columns=remove_columns,
-            num_proc=data_args.num_workers,
+            num_proc=data_args.processing_num_workers,
             desc="preprocess train dataset",
         )
     if data_args.preprocessing_only:
@@ -695,26 +683,20 @@ def main():
         if training_args.resume_from_checkpoint != "latest":
             path = os.path.basename(training_args.resume_from_checkpoint)
         else:
-            # Get the most recent checkpoint
-            dirs = os.listdir(training_args.output_dir)
-            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = [d for d in os.listdir(training_args.output_dir) if d.startswith("checkpoint")]
             dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
             path = dirs[-1] if len(dirs) > 0 else None
 
         if path is None:
-            accelerator.print(
-                f"Checkpoint '{training_args.resume_from_checkpoint}' does not exist. Starting a new training run."
-            )
+            accelerator.print(f"Checkpoint '{training_args.resume_from_checkpoint}' does not exist. Starting a new training run.")
             training_args.resume_from_checkpoint = None
             initial_global_step = 0
         else:
             accelerator.print(f"Resuming from checkpoint {path}")
             accelerator.load_state(os.path.join(training_args.output_dir, path))
             global_step = int(path.split("-")[1])
-
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
-
     else:
         initial_global_step = 0
 
@@ -728,7 +710,12 @@ def main():
 
 
     for epoch in range(first_epoch, training_args.num_train_epochs):
+        # Step scheduler per epoch if specified
+        if training_args.do_step_schedule_per_epoch:
+            lr_scheduler.step()
+
         model.train()
+        train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 # Forward pass
@@ -740,19 +727,33 @@ def main():
                 )
                 loss = outputs.loss
                 accelerator.backward(loss)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(model.parameters(), training_args.max_grad_norm)
                 optimizer.step()
                 optimizer.zero_grad()
 
             # Update scheduler and log
             if accelerator.sync_gradients:
-                lr_scheduler.step()
-                accelerator.log({"train_loss": loss.item(), "epoch": epoch}, step=global_step)
+                if not training_args.do_step_schedule_per_epoch:
+                    lr_scheduler.step()
+                loss_gathered = accelerator.gather(loss.repeat(per_device_train_batch_size)).mean()
+                train_loss += loss_gathered.item() / training_args.gradient_accumulation_steps
+                accelerator.log({"train_loss": train_loss, "epoch": epoch}, step=global_step)
+                train_loss = 0.0
                 global_step += 1
+                progress_bar.update(1)
+
+            # Log step loss
+            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            progress_bar.set_postfix(**logs)
 
             # Check max steps
             if global_step >= training_args.max_steps:
                 break
+
+        # Evaluation
         if training_args.do_eval and eval_dataloader:
+            logger.info("Running validation...")
             model.eval()
             total_eval_loss = 0
             num_batches = 0
@@ -767,14 +768,38 @@ def main():
                     val_loss = outputs.loss
                     total_eval_loss += accelerator.reduce(val_loss).item()
                     num_batches += 1
-            avg_eval_loss = total_eval_loss / num_batches
+
+                # Seq2Seq generation
+                if model_args.model_type == "seq2seq" and training_args.predict_with_generate:
+                    generated_ids = model.generate(
+                        input_ids=batch["input_ids"],
+                        attention_mask=batch["attention_mask"],
+                        max_length=training_args.generation_max_length,
+                        num_beams=training_args.generation_num_beams,
+                    )
+                    generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+                    target_texts = tokenizer.batch_decode(batch["labels"], skip_special_tokens=True)
+                    inputs = tokenizer.batch_decode(batch["input_ids"], skip_special_tokens=True)
+                    if accelerator.is_main_process:
+                        log_text_predictions(accelerator.trackers, inputs, generated_texts, target_texts, epoch)
+
+            avg_eval_loss = total_eval_loss / num_batches if num_batches > 0 else 0.0
             accelerator.log({"eval_loss": avg_eval_loss, "epoch": epoch}, step=global_step)
 
-            # Save checkpoint
-        if training_args.save_steps > 0 and global_step % training_args.save_steps == 0:
-                accelerator.save_state(os.path.join(training_args.output_dir, f"checkpoint-{global_step}"))
+    # Save final model
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        model = accelerator.unwrap_model(model)
+        model.save_pretrained(training_args.output_dir)
+        tokenizer.save_pretrained(training_args.output_dir)
+        if training_args.push_to_hub:
+            model.push_to_hub(training_args.hub_model_id)
 
-        if global_step >= training_args.max_steps:
-            break
+    accelerator.end_training()
+    # 13. Push tokenizer
+    if training_args.push_to_hub:
+        tokenizer.push_to_hub(training_args.hub_model_id)
+
+    logger.info("***** Training / Inference Done *****")
 
 print(f'{__file__} passed')
