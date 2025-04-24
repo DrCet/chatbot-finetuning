@@ -28,8 +28,6 @@ from transformers import (
 from transformers.optimization import get_scheduler
 from transformers.trainer_pt_utils import LengthGroupedSampler
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
-from transformers.utils import send_example_telemetry
-
 
 if is_wandb_available():
     import wandb
@@ -59,10 +57,6 @@ class ModelArguments:
         metadata={"help": "Pretrained config name or path if not the same as model_name"}
     )
 
-    feature_extractor_name: Optional[str] = field(
-        default=None,
-        metadata={"help": "Pretrained feature extractor name or path if not the same as model_name"}
-    )
     cache_dir: Optional[str] = field(
         default=None,
         metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
@@ -89,7 +83,6 @@ class ModelArguments:
             )
         },
     )
-
     override_vocabulary_embeddings: bool = field(
         default=False,
         metadata={
@@ -147,12 +140,11 @@ class DataTrainingArguments:
         default=None,
         metadata={
             "help": (
-                "The configuration name of the dataset to use (from datasets.load_dataset)."
+                "The configuration (specific version, subset) name of the dataset to use (from datasets.load_dataset)."
                 "If not specified, will be used as the dataset name."
             )
         },
     )
-
     overwrite_cache: bool = field(
         default=False,
         metadata={
@@ -187,7 +179,6 @@ class DataTrainingArguments:
             )
         },
     )
-    
     source_column_name: Optional[str] = field(
         default=None,
         metadata={"help": "Column name for source/input text (used for Seq2SeqLM)."},
@@ -207,33 +198,22 @@ class DataTrainingArguments:
         default=512,
         metadata={"help": "Truncate texts longer than this many tokens."},
     )
-
     preprocessing_only: bool = field(
         default=False,
         metadata={"help": "Run only preprocessing and skip training."},
     )
-
     do_lower_case: bool = field(
         default=False,
         metadata={"help": "Lowercase the input text."},
     )
-
     train_split_name: str = field(
         default="train",
         metadata={"help": "Name of the training split."},
     )
-
     eval_split_name: str = field(
         default="validation",
         metadata={"help": "Name of the evaluation split."},
     )
-
-    full_generation_sample_text: str = field(
-        default="This is a test input.",
-        metadata={"help": "Input prompt for full generation sanity check."},
-    )
-
-
 class DataCollatorForLanguageModeling:
     """
     A unified data collator for CausalLM and Seq2SeqLM models.
@@ -310,9 +290,6 @@ def main():
     else:
         # Parse from command line arguments
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-
-    # Telemetry (optional)
-    send_example_telemetry("run_seq2seq_finetuning", model_args, data_args)
 
     # 2. Setup logging
     logging.basicConfig(
@@ -533,10 +510,6 @@ def main():
         is_seq2seq=is_seq2seq,
         forward_attention_mask=forward_attention_mask,
     )
-
-    with training_args.main_process_first():
-        input_str = data_args.full_generation_sample_text
-        full_generation_sample = tokenizer(input_str, return_tensors="pt")
 
     # 10. Set up accelerate
     project_name = data_args.project_name
