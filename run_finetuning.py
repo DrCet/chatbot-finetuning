@@ -416,7 +416,7 @@ def main():
 
     def prepare_dataset(batch):
         model_inputs = {}
-        if data_args.model_type == "causal-lm":
+        if model_args.model_type == "causal-lm":
             texts = batch[data_args.text_column_name]
             if data_args.do_lower_case:
                 texts = [text.lower() for text in texts]
