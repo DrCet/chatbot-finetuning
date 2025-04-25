@@ -5,8 +5,6 @@
     "override_vocabulary_embeddings": false,
     "dataset_name": "roneneldan/TinyStories",
     "text_column_name": "text",
-    "max_train_samples": 100,
-    "max_eval_samples": 20,
     "max_tokens_length": 128,
     "overwrite_cache": true,
     "processing_num_workers": 4,
