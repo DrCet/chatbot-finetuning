@@ -4,6 +4,7 @@ import sys
 import math
 from dataclasses import dataclass, field
 from typing import  Dict, List, Optional, Union
+import shutil
 
 import datasets
 import torch
@@ -514,7 +515,7 @@ def main():
     # 10. Set up accelerate
     project_name = data_args.project_name
     train_dataset = vectorized_datasets["train"]
-    eval_dataset = vectorized_datasets.get("eval", None)
+    eval_dataset = vectorized_datasets.get("validation", None)
 
     # inspired from https://github.com/huggingface/diffusers/blob/main/examples/text_to_image/train_text_to_image.py
     # and https://github.com/huggingface/community-events/blob/main/huggan/pytorch/cyclegan/train.py
