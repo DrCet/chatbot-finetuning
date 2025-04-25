@@ -353,7 +353,7 @@ def main():
 
     # Load evaluation dataset
     if training_args.do_eval:
-        raw_datasets["eval"] = load_dataset(
+        raw_datasets["validation"] = load_dataset(
             data_args.dataset_name,
             data_args.dataset_config_name,
             split=data_args.eval_split_name,
@@ -412,7 +412,7 @@ def main():
         if data_args.max_train_samples is not None:
             raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
         if data_args.max_eval_samples is not None:
-            raw_datasets["eval"] = raw_datasets["eval"].select(range(data_args.max_eval_samples))
+            raw_datasets["validation"] = raw_datasets["validation"].select(range(data_args.max_eval_samples))
 
     def prepare_dataset(batch):
         model_inputs = {}
