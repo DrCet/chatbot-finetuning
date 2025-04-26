@@ -405,6 +405,9 @@ def main():
         trust_remote_code=model_args.trust_remote_code,
         verbose=False,
     )
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        logger.info("Set pad_token to eos_token: {}".format(tokenizer.pad_token))
 
     # 6. Preprocess the datasets
     forward_attention_mask = True
