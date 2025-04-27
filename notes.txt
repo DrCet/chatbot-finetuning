@@ -1,3 +1,0 @@
-+ 24 Apr:
-    make mindmap
-    understand code
