@@ -7,6 +7,7 @@ from transformers import (
 )
 from huggingface_hub import whoami
 from transformers.utils import logging
+from huggingface_hub import login
 
 logging.set_verbosity_info()
 logger = logging.get_logger("chatbot_finetuning.model")
@@ -73,7 +74,7 @@ def create_model(
     if repo_id:
         logger.info(f"Pushing to {repo_id}...")
         try:
-            whoami()  # Verify authentication
+            login()
             model.push_to_hub(repo_id)
             tokenizer.push_to_hub(repo_id)
         except Exception as e:
