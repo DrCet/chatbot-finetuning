@@ -1,4 +1,4 @@
-# Chatbot Finetuning
+# 1. Chatbot Finetuning
 
 A pipeline for fine-tuning chat models like `distilgpt2` on datasets like `wikitext` or `cnn_dailymail` using Hugging Face Transformers and Accelerate. This project includes scripts to initialize models (`create_model.py`) and fine-tune them (`run_finetuning.py`) with customizable configurations.
 
@@ -64,16 +64,16 @@ python create_model.py \
 *Note*: Requires `HF_TOKEN` environment variable or Kaggle secret for `--repo_id`.
 
 ### 2. Fine-Tune the Model
-Use `run_finetuning.py` to fine-tune the model on a dataset, configured via `finetune.json`.
+Use `run_chatbot_finetuning.py` to fine-tune the model on a dataset, configured via `finetune_json/chatbot.json`.
 
 ```bash
-accelerate launch run_finetuning.py ./finetune.json
+accelerate launch run_chatbot_finetuning.py ./finetune_json/chatbot.json
 ```
 
 - `finetune.json`: Configuration file (see below).
 
-### Configuring `finetune.json`
-Create a `finetune.json` file in the project root to specify training parameters. Below is an example configuration:
+### Configuring `chatbot.json`
+Create a `chatbot.json` file in the project root to specify training parameters. Below is an example configuration:
 
 ```json
 {
