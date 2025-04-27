@@ -31,6 +31,20 @@ A pipeline for fine-tuning chat models like `distilgpt2` on datasets like `wikit
 
 ## Usage
 
+
+### 0. Loggin to HuggingFace
+When using notebook environment, run:
+```
+from huggingface_hub import notebook_login
+notebook_login()
+```
+
+or
+```
+from huggingface_hub import login
+login(token='YOUR TOKEN')
+```
+
 ### 1. Initialize a Model
 Use `create_model.py` to download a model and tokenizer from the Hugging Face Hub and save them locally or push to a new repository.
 

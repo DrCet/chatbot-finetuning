@@ -80,18 +80,7 @@ def create_model(
 
     # Push to Hugging Face Hub if repo_id is provided
     if repo_id:
-        logger.info(f"Pushing to {repo_id}...")
         try:
-            if is_notebook_environment():
-                logger.info("Detected notebook environment, using notebook_login")
-                try:
-                    notebook_login()
-                    logger.info("Authenticated with Hugging Face Hub via notebook_login")
-                except Exception as e:
-                    logger.error(f"Notebook login failed: {e}")
-                    raise
-            else:
-                login()
             model.push_to_hub(repo_id)
             tokenizer.push_to_hub(repo_id)
         except Exception as e:
