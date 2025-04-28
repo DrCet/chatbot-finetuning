@@ -180,4 +180,6 @@ class DataCollatorWithPadding:
         labels[labels == self.processor.tokenizer.pad_token_id] = -100
         batch["labels"] = labels
         return batch
-      
+def main():
+    pass
+

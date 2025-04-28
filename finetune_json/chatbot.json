@@ -1,9 +1,11 @@
 {
-    "model_name_or_path": "distilgpt2",
-    "model_type": "causal-lm",
+    "model_name_or_path": "t5-small",
+    "model_type": "seq2seq",
     "use_fast_tokenizer": true,
     "override_vocabulary_embeddings": false,
     "dataset_name": "roneneldan/TinyStories",
+    "source_column_name": "text",
+    "target_column_name": "text",
     "text_column_name": "text",
     "max_tokens_length": 128,
     "overwrite_cache": true,
@@ -30,7 +32,7 @@
     "adam_epsilon": 1e-8,
     "lr_scheduler_type": "linear",
     "warmup_steps": 0,
-    "do_step_schedule_per_epoch": false,
+    "do_step_schedule_per_epoch": true,
     "save_total_limit": 3,
     "fp16": true,
     "cache_dir": "./test_output/cache"
