@@ -1,7 +1,10 @@
 
 from dataclasses import dataclass, field
+from functools import cache
+import re
 import sys
 import os
+import token
 from typing import Any, List, Dict, Union
 import torch
 import logging
@@ -13,6 +16,8 @@ from datasets import DatasetDict, load_dataset
 from transformers import (
     TrainingArguments,
     HfArgumentParser,
+    AutoConfig,
+    AutoProcessor,
 )
 import transformers
 
@@ -181,7 +186,7 @@ class DataCollatorWithPadding:
         self.processor = processor
         self.forward_attention_mask = forward_attention_mask
     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-        pixel_values = torch.stack([f'pixel_values' for f in features])
+        pixel_values = torch.stack([f['pixel_values'] for f in features])
         input_ids = [f['input_ids'] for f in features]
         batch = self.processor.tokenizer.pad(
            {'input_ids':input_ids},
@@ -269,3 +274,99 @@ def main():
         raise ValueError(f"Column {data_args.image_column_name} not found in dataset.")
     if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.text_column_name} not found in dataset.")
+
+    # 5. Load processor and config
+    config = AutoConfig.from_pretrained(
+        model_args.config_name_or_path if model_args.config_name_or_path else model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        token=model_args.token,
+        trust_remote_code=model_args.trust_remote_code,
+    )
+
+    processor = AutoProcessor.from_pretrained(
+        model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        token=model_args.token,
+        trust_remote_code=model_args.trust_remote_code,
+    )
+
+
+    # 6. Preprocess the datasets
+    forward_attention_mask = True
+    with training_args.main_process_first():
+        if data_args.max_train_samples is not None:
+            raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
+        if data_args.max_eval_samples is not None:
+            raw_datasets["validation"] = raw_datasets["validation"].select(range(data_args.max_eval_samples))
+
+    def prepare_dataset(batch):
+        images = batch[data_args.image_column_name]
+        texts = batch[data_args.text_column_name]
+        inputs = processor(images=images, text=texts, return_tensors="pt")
+        return {
+            "pixel_values": inputs["pixel_values"].split(1),  # List of [1, C, H, W]
+            "input_ids": inputs["input_ids"].split(1),       # List of [1, seq_len]
+            "attention_mask": inputs["attention_mask"].split(1)
+        }
+
+    remove_columns = raw_datasets["train"].column_names
+    with training_args.main_process_first(desc="dataset map pre-processing"):
+        vectorized_datasets = raw_datasets.map(
+            prepare_dataset,
+            batched=True,
+            num_proc=data_args.processing_num_workers or os.cpu_count(),
+            remove_columns=remove_columns,
+            load_from_cache_file=not data_args.overwrite_cache,
+            desc="Preprocess train dataset",
+        )
+    if data_args.preprocessing_only:
+        cache = {k: v.cache_files for k, v in vectorized_datasets.items()}
+        logger.info(f"Data preprocessing finished. Files cached at {cache}.")
+        return
+
+    # 8. Load pretrained model
+    def load_model_and_processor(checkpoint: str, config=config):
+        """
+        Automatically load the appropriate model and processor for a given checkpoint.
+        
+        Args:
+            checkpoint (str): Model checkpoint (e.g., "microsoft/git-base", "Salesforce/blip-image-captioning-base").
+            device (str): Device to load the model on (e.g., "cuda", "cpu").
+        
+        Returns:
+            tuple: (model, processor)
+        """
+        # Mapping of model architectures to AutoModel classes
+        model_class_mapping = {
+            "GitForCausalLM": AutoModelForCausalLM,
+            "BlipForConditionalGeneration": AutoModelForVision2Seq,
+            "VisionEncoderDecoderModel": AutoModelForVision2Seq,
+            "T5ForConditionalGeneration": AutoModelForSeq2SeqLM,
+            "BartForConditionalGeneration": AutoModelForSeq2SeqLM,
+            "MBartForConditionalGeneration": AutoModelForSeq2SeqLM
+        }
+
+        # Load configuration
+        architecture = config.architectures[0] if config.architectures else None
+
+        if not architecture:
+            raise ValueError(f"No architecture found in config for {checkpoint}")
+
+        # Find the appropriate AutoModel class
+        model_class = None
+        for arch_name, auto_class in model_class_mapping.items():
+            if arch_name in architecture:
+                model_class = auto_class
+                break
+
+        if model_class is None:
+            logger.warning(f"Unknown architecture {architecture}. Defaulting to AutoModelForCausalLM.")
+            model_class = AutoModelForCausalLM
+
+        # Load model
+        model = model_class.from_pretrained(checkpoint).to(device)
+        logger.info(f"Loaded model with architecture {architecture} using {model_class.__name__}")
+
+        return model
