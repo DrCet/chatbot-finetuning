@@ -1,11 +1,25 @@
 
 from dataclasses import dataclass, field
+import sys
+import os
 from typing import Any, List, Dict, Union
 import torch
+import logging
+from transformers.trainer_utils import is_main_process
+from accelerate.utils import set_seed
+import datasets
+from datasets import DatasetDict, load_dataset
 
 from transformers import (
-    TrainingArguments
+    TrainingArguments,
+    HfArgumentParser,
 )
+import transformers
+
+logger = logging.getLogger(__name__)
+
+
+
 @dataclass
 class ModelArguments:
     model_name_or_path: str = field(
@@ -181,5 +195,73 @@ class DataCollatorWithPadding:
         batch["labels"] = labels
         return batch
 def main():
-    pass
+    # 1. Parse the arguments
+    # We now keep distinct sets of args for a clean separation of concerns.
+    parser = HfArgumentParser(ModelArguments, DataTrainingArguments, ImageCapTrainingArguments)
+    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
+        # If we pass only one argument to the script and it's the path to a json file,
+        # let's parse it to get our arguments.
+        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    else:
+        # Otherwise we use the command line arguments to parse them.
+        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
+    # 2. Set up logging
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    log_level = training_args.get_process_log_level()
+    logger.setLevel(log_level)
+    datasets.utils.logging.set_verbosity(log_level)
+    transformers.utils.logging.set_verbosity(log_level)
+    transformers.utils.logging.enable_default_handler()
+    transformers.utils.logging.enable_explicit_format()
+
+    logger.setLevel(logging.INFO if is_main_process(training_args) else logging.WARN)
+
+    logger.warning(
+        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
+        f"distributed training: {training_args.parallel_mode.value == 'distributed'}, 16-bits training: {training_args.fp16}"
+    )
+    logger.info(f"Training/evaluation parameters {training_args}")
+
+    # Set the verbosity to info of the Transformers logger (on main process only):
+    if is_main_process(training_args.local_rank):
+        transformers.utils.logging.set_verbosity_info()
+    logger.info("Training/evaluation parameters %s", training_args)
+
+
+    #3. Detecting last checkpoint and eventually continue from it
+    last_checkpoint = None
+    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
+        last_checkpoint = transformers.trainer_utils.get_last_checkpoint(training_args.output_dir)
+        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
+            raise ValueError(
+                f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
+            )
+        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
+            logger.info(
+                f"Checkpoint detected, resuming training at {last_checkpoint}."
+            )
+    # Set seed before initializing the model.
+    set_seed(training_args.seed)
+    # 4. Load dataset
+    raw_datasets = DatasetDict()
+    if training_args.do_train:
+        raw_datasets['train'] = load_dataset(
+            data_args.dataset_name,
+            data_args.dataset_config_name,
+            split=data_args.train_split_name,
+            cache_dir=model_args.cache_dir,
+            token=model_args.token
+        )
+    if training_args.do_eval:
+        raw_datasets['validation'] = load_dataset(
+            data_args.dataset_name,
+            data_args.dataset_config_name,
+            split=data_args.eval_split_name,
+            cache_dir=model_args.cache_dir,
+            token=model_args.token
+        )
