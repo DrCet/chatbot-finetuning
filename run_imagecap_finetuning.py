@@ -265,3 +265,7 @@ def main():
             cache_dir=model_args.cache_dir,
             token=model_args.token
         )
+    if data_args.image_column_name not in next(iter(raw_datasets.values())).column_names:
+        raise ValueError(f"Column {data_args.image_column_name} not found in dataset.")
+    if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
+        raise ValueError(f"Column {data_args.text_column_name} not found in dataset.")
