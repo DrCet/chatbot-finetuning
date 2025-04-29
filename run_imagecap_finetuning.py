@@ -1,15 +1,15 @@
 
 from dataclasses import dataclass, field
-from functools import cache
-import re
+
+from operator import length_hint
 import sys
 import os
-import token
 from typing import Any, List, Dict, Union
 import torch
 import logging
 from transformers.trainer_utils import is_main_process
-from accelerate.utils import set_seed
+from accelerate.utils import set_seed, ProjectConfiguration
+from accelerate import Accelerator, DistributedDataParallelKwargs
 import datasets
 from datasets import DatasetDict, load_dataset
 
@@ -18,9 +18,14 @@ from transformers import (
     HfArgumentParser,
     AutoConfig,
     AutoProcessor,
+    AutoModelForVision2Seq,
+    AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
 )
 import transformers
+from transformers.trainer_pt_utils import LengthGroupedSampler
 
+ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 logger = logging.getLogger(__name__)
 
 
@@ -199,6 +204,51 @@ class DataCollatorWithPadding:
         labels[labels == self.processor.tokenizer.pad_token_id] = -100
         batch["labels"] = labels
         return batch
+
+def load_model(checkpoint: str, config):
+        """
+        Automatically load the appropriate model and processor for a given checkpoint.
+        
+        Args:
+            checkpoint (str): Model checkpoint (e.g., "microsoft/git-base", "Salesforce/blip-image-captioning-base").
+            device (str): Device to load the model on (e.g., "cuda", "cpu").
+        
+        Returns:
+            tuple: (model, processor)
+        """
+        # Mapping of model architectures to AutoModel classes
+        model_class_mapping = {
+            "GitForCausalLM": AutoModelForCausalLM,
+            "BlipForConditionalGeneration": AutoModelForVision2Seq,
+            "VisionEncoderDecoderModel": AutoModelForVision2Seq,
+            "T5ForConditionalGeneration": AutoModelForSeq2SeqLM,
+            "BartForConditionalGeneration": AutoModelForSeq2SeqLM,
+            "MBartForConditionalGeneration": AutoModelForSeq2SeqLM
+        }
+
+        # Load configuration
+        architecture = config.architectures[0] if config.architectures else None
+
+        if not architecture:
+            raise ValueError(f"No architecture found in config for {checkpoint}")
+
+        # Find the appropriate AutoModel class
+        model_class = None
+        for arch_name, auto_class in model_class_mapping.items():
+            if arch_name in architecture:
+                model_class = auto_class
+                break
+
+        if model_class is None:
+            logger.warning(f"Unknown architecture {architecture}. Defaulting to AutoModelForCausalLM.")
+            model_class = AutoModelForCausalLM
+
+        # Load model
+        model = model_class.from_pretrained(checkpoint)
+        logger.info(f"Loaded model with architecture {architecture} using {model_class.__name__}")
+
+        return model
+
 def main():
     # 1. Parse the arguments
     # We now keep distinct sets of args for a clean separation of concerns.
@@ -326,47 +376,80 @@ def main():
         logger.info(f"Data preprocessing finished. Files cached at {cache}.")
         return
 
-    # 8. Load pretrained model
-    def load_model_and_processor(checkpoint: str, config=config):
-        """
-        Automatically load the appropriate model and processor for a given checkpoint.
-        
-        Args:
-            checkpoint (str): Model checkpoint (e.g., "microsoft/git-base", "Salesforce/blip-image-captioning-base").
-            device (str): Device to load the model on (e.g., "cuda", "cpu").
-        
-        Returns:
-            tuple: (model, processor)
-        """
-        # Mapping of model architectures to AutoModel classes
-        model_class_mapping = {
-            "GitForCausalLM": AutoModelForCausalLM,
-            "BlipForConditionalGeneration": AutoModelForVision2Seq,
-            "VisionEncoderDecoderModel": AutoModelForVision2Seq,
-            "T5ForConditionalGeneration": AutoModelForSeq2SeqLM,
-            "BartForConditionalGeneration": AutoModelForSeq2SeqLM,
-            "MBartForConditionalGeneration": AutoModelForSeq2SeqLM
-        }
+    # 7. Load pretrained model
+    model = load_model(
+        model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
+        config=config
+    )
+    if model_args.overwrite_vocabulary:
+        try:
+            model.resize_token_embeddings(len(processor.tokenizer))
+        except Exception as e:
+            logger.warning(f"Failed to resize token embeddings: {e}.")
+            raise e
+    # 8. Save configs
+    # make sure all processes wait until data is saved
+    with training_args.main_process_first():
+        # only the main process saves them
+        if is_main_process(training_args.local_rank):
+            # save feature extractor, tokenizer and config
+            processor.save_pretrained(training_args.output_dir)
+            config.save_pretrained(training_args.output_dir)
+    # 9. Define data collator
+    data_collator = DataCollatorWithPadding(
+        processor=processor,
+        forward_attention_mask=forward_attention_mask,
+    )
 
-        # Load configuration
-        architecture = config.architectures[0] if config.architectures else None
+    # 10. Set up accelerate
+    project_name = data_args.project_name
+    train_dataset = vectorized_datasets["train"]
+    eval_dataset = vectorized_datasets.get("validation", None)
 
-        if not architecture:
-            raise ValueError(f"No architecture found in config for {checkpoint}")
+    # inspired from https://github.com/huggingface/diffusers/blob/main/examples/text_to_image/train_text_to_image.py
+    # and https://github.com/huggingface/community-events/blob/main/huggan/pytorch/cyclegan/train.py
 
-        # Find the appropriate AutoModel class
-        model_class = None
-        for arch_name, auto_class in model_class_mapping.items():
-            if arch_name in architecture:
-                model_class = auto_class
-                break
+    logging_dir = os.path.join(training_args.output_dir, training_args.logging_dir)
+    accelerator_project_config = ProjectConfiguration(project_dir=training_args.output_dir, logging_dir=logging_dir)
 
-        if model_class is None:
-            logger.warning(f"Unknown architecture {architecture}. Defaulting to AutoModelForCausalLM.")
-            model_class = AutoModelForCausalLM
+    accelerator = Accelerator(
+        gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+        log_with=training_args.report_to,
+        project_config=accelerator_project_config,
+        kwargs_handlers=[ddp_kwargs],
+    )
 
-        # Load model
-        model = model_class.from_pretrained(checkpoint).to(device)
-        logger.info(f"Loaded model with architecture {architecture} using {model_class.__name__}")
+    per_device_train_batch_size = (
+        training_args.per_device_train_batch_size if training_args.per_device_train_batch_size else 1
+    )
+    total_batch_size = (
+        per_device_train_batch_size * accelerator.num_processes * training_args.gradient_accumulation_steps
+    )
 
-        return model
+
+    if training_args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+
+    # 11. Define train_dataloader and eval_dataloader
+    train_dataloader = None
+    if training_args.do_train:
+        sampler = (
+            LengthGroupedSampler(
+                batch_size=per_device_train_batch_size,
+                dataset=train_dataset,
+                lengths=[len(x) for x in train_dataset["input_ids"]]
+            )
+            if training_args.group_by_length
+            else None
+        )
+    eval_dataloader = None
+    if training_args.do_train:
+        eval_sampler = (
+            LengthGroupedSampler(
+                batch_size=per_device_train_batch_size,
+                dataset=eval_dataset,
+                lengths=[len(x) for x in eval_dataset["input_ids"]]
+            )
+            if training_args.group_by_length
+            else None
+        )
