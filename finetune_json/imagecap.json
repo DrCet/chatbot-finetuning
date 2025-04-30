@@ -31,7 +31,7 @@
     "save_strategy": "epoch",
     "logging_strategy": "steps",
     "logging_steps": 100,
-    "report_to": "wandb",
+    "report_to": "tensorboard",
     "fp16": true,
     "seed": 42,
     "do_step_schedule_per_epoch": true,
