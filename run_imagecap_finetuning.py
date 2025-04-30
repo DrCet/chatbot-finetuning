@@ -407,5 +407,5 @@ def main():
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
     
-    if __name__ == "main":
-        main()
+if __name__ == "main":
+    main()
