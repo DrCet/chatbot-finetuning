@@ -343,9 +343,9 @@ def main():
         texts = batch[data_args.text_column_name]
         inputs = processor(images=images, text=texts, return_tensors="pt")
         return {
-            "pixel_values": [inputs["pixel_values"][i] for i in range(inputs["pixel_values"].shape[0])],
-            "input_ids": [inputs["input_ids"][i] for i in range(inputs["input_ids"].shape[0])],
-            "attention_mask": [inputs["attention_mask"][i] for i in range(inputs["attention_mask"].shape[0])]
+            "pixel_values": inputs["pixel_values"],
+            "input_ids": inputs["input_ids"] ,
+            "attention_mask": inputs["attention_mask"]
         }
 
     remove_columns = raw_datasets["train"].column_names
