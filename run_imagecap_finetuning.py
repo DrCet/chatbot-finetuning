@@ -1,15 +1,11 @@
 
 from dataclasses import dataclass, field
-
-from operator import length_hint
 import sys
 import os
 from typing import Any, List, Dict, Union
 import torch
 import logging
 from transformers.trainer_utils import is_main_process
-from accelerate.utils import set_seed, ProjectConfiguration
-from accelerate import Accelerator, DistributedDataParallelKwargs
 import datasets
 from datasets import DatasetDict, load_dataset
 
@@ -21,11 +17,9 @@ from transformers import (
     AutoModelForVision2Seq,
     AutoModelForCausalLM,
     AutoModelForSeq2SeqLM,
+    Trainer
 )
 import transformers
-from transformers.trainer_pt_utils import LengthGroupedSampler
-
-ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 logger = logging.getLogger(__name__)
 
 
@@ -400,56 +394,25 @@ def main():
         processor=processor,
         forward_attention_mask=forward_attention_mask,
     )
-
-    # 10. Set up accelerate
-    project_name = data_args.project_name
-    train_dataset = vectorized_datasets["train"]
-    eval_dataset = vectorized_datasets.get("validation", None)
-
-    # inspired from https://github.com/huggingface/diffusers/blob/main/examples/text_to_image/train_text_to_image.py
-    # and https://github.com/huggingface/community-events/blob/main/huggan/pytorch/cyclegan/train.py
-
-    logging_dir = os.path.join(training_args.output_dir, training_args.logging_dir)
-    accelerator_project_config = ProjectConfiguration(project_dir=training_args.output_dir, logging_dir=logging_dir)
-
-    accelerator = Accelerator(
-        gradient_accumulation_steps=training_args.gradient_accumulation_steps,
-        log_with=training_args.report_to,
-        project_config=accelerator_project_config,
-        kwargs_handlers=[ddp_kwargs],
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=vectorized_datasets["train"] if training_args.do_train else None,
+        eval_dataset=vectorized_datasets["validation"] if training_args.do_eval else None,
+        data_collator=data_collator,
     )
-
-    per_device_train_batch_size = (
-        training_args.per_device_train_batch_size if training_args.per_device_train_batch_size else 1
-    )
-    total_batch_size = (
-        per_device_train_batch_size * accelerator.num_processes * training_args.gradient_accumulation_steps
-    )
-
-
-    if training_args.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
-
-    # 11. Define train_dataloader and eval_dataloader
-    train_dataloader = None
+    # 10. Training and evaluation
     if training_args.do_train:
-        sampler = (
-            LengthGroupedSampler(
-                batch_size=per_device_train_batch_size,
-                dataset=train_dataset,
-                lengths=[len(x) for x in train_dataset["input_ids"]]
-            )
-            if training_args.group_by_length
-            else None
-        )
-    eval_dataloader = None
-    if training_args.do_train:
-        eval_sampler = (
-            LengthGroupedSampler(
-                batch_size=per_device_train_batch_size,
-                dataset=eval_dataset,
-                lengths=[len(x) for x in eval_dataset["input_ids"]]
-            )
-            if training_args.group_by_length
-            else None
-        )
+        checkpoint = last_checkpoint if last_checkpoint is not None else None
+        train_result = trainer.train(resume_from_checkpoint=checkpoint)
+        trainer.save_model()  # Saves the tokenizer too for easy upload
+        trainer.log_metrics("train", train_result.metrics)
+        trainer.save_metrics("train", train_result.metrics)
+        trainer.save_state()
+    if training_args.do_eval:
+        metrics = trainer.evaluate()
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+    
+    if __name__ == "main":
+        main()
