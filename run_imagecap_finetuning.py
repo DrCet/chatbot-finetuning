@@ -240,7 +240,7 @@ def load_model(checkpoint: str, config):
 def main():
     # 1. Parse the arguments
     # We now keep distinct sets of args for a clean separation of concerns.
-    parser = HfArgumentParser(ModelArguments, DataTrainingArguments, ImageCapTrainingArguments)
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ImageCapTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
