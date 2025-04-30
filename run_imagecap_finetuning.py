@@ -179,7 +179,7 @@ class DataCollatorWithPadding:
         self.processor = processor
         self.forward_attention_mask = forward_attention_mask
     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-        pixel_values = torch.stack([f['pixel_values'] for f in features])
+        pixel_values = torch.stack([torch.tensor(f['pixel_values']) for f in features])
         input_ids = [f['input_ids'] for f in features]
         batch = self.processor.tokenizer.pad(
            {'input_ids':input_ids},
