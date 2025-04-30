@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+@dataclass
 class ModelArguments:
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
@@ -38,17 +39,16 @@ class ModelArguments:
         metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
     )
     cache_dir: str = field(
+        default=None,  # Added default to fix error
         metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
     use_fast_tokenizer: bool = field(
         default=True,
-        metadata={"help": "Whether to use the fast tokenizer (backed by the 🤗 Tokenizers library)."},
+        metadata={"help": "Whether to use the fast tokenizer (backed by the 🤗 Tokenizers library)."}
     )
     model_revision: str = field(
         default="main",
-        metadata={
-            "help": "Revision of the model to use (can be a branch name, tag name or git commit id)."
-        },
+        metadata={"help": "Revision of the model to use (can be a branch name, tag name or git commit id)."}
     )
     token: str = field(
         default=None,
@@ -56,17 +56,11 @@ class ModelArguments:
     )
     use_auth_token: bool = field(
         default=False,
-        metadata={
-            "help": "Will use the token from the cache or login if not already done. "
-            "It can be used to download private models and datasets."
-        },
+        metadata={"help": "Will use the token from the cache or login if not already done."}
     )
     trust_remote_code: bool = field(
         default=False,
-        metadata={
-            "help": "Whether to allow the use of code from the model repo. "
-            "This may be used to load custom models or layers."
-        },
+        metadata={"help": "Whether to allow the use of code from the model repo."}
     )
     overwrite_vocabulary: bool = field(
         default=False,
@@ -294,8 +288,7 @@ def main():
             logger.info(
                 f"Checkpoint detected, resuming training at {last_checkpoint}."
             )
-    # Set seed before initializing the model.
-    set_seed(training_args.seed)
+
     # 4. Load dataset
     raw_datasets = DatasetDict()
     if training_args.do_train:
