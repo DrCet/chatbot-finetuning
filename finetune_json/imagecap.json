@@ -1,6 +1,5 @@
 {
     "model_name_or_path": "microsoft/git-base",
-    "cache_dir": "./cache",
     "use_fast_tokenizer": true,
     "model_revision": "main",
     "use_auth_token": false,
