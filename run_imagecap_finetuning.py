@@ -341,7 +341,7 @@ def main():
     def prepare_dataset(batch):
         images = batch[data_args.image_column_name]
         texts = batch[data_args.text_column_name]
-        inputs = processor(images=images, text=texts, return_tensors="pt")
+        inputs = processor(images=images, text=texts, return_tensors=None)
         return {
             "pixel_values": inputs["pixel_values"],
             "input_ids": inputs["input_ids"] ,
