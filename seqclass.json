@@ -1,0 +1,26 @@
+{
+    "model_name_or_path": "NousResearch/Minos-v1",
+    "cache_dir": "./seqclass_cache",
+
+    "do_train": true,
+    "do_eval": true,
+    "per_device_train_batch_size": 16,
+    "per_device_eval_batch_size": 16,
+    "max_steps": 100,
+    "gradient_accumulation_steps": 2,  
+    "weight_decay": 0.01,
+
+    "lr_scheduler_type": "cosine",
+    "warmup_steps": 10,
+
+    "eval_steps": 10,
+    "logging_steps": 10,
+    "logging_dir": "./logs",
+    "report_to": "tensorboard",
+
+    "dataset_name_or_path": "splevine/dstc11-intent",
+    "text_column_name": "utterance",
+    "label_column_name": "intents",
+    "train_split_name": "train",
+    "preprocessing_num_workers": 4
+}

@@ -1,3 +1,4 @@
+from curses import raw
 import logging
 from dataclasses import dataclass, field
 import tokenize
@@ -18,6 +19,7 @@ from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
     AutoConfig,
+    Trainer
 )
 
 @dataclass
@@ -90,9 +92,9 @@ class SeqClassificationDataArguments:
         metadata={"help": "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
                           "value if set."}
     )
-    num_labels: int = field(
-        default=2,
-        metadata={"help": "The number of labels for the classification task."}
+    preprocessing_num_workers: int = field(
+        default=None,
+        metadata={"help": "The number of processes to use for the preprocessing."}
     )
 
 
@@ -171,13 +173,18 @@ def main():
             split=data_args.train_split_name,
             cache_dir=model_args.cache_dir
         )
-    if training_args.do_eval:
+    if training_args.do_eval and data_args.eval_split_name is not None:
         raw_dataset['validation'] = load_dataset(
             data_args.dataset_name_or_path, 
             data_args.dataset_subset_name, 
             split=data_args.eval_split_name
             cache_dir=model_args.cache_dir
         )
+    elif not training_args.eval_split_name:
+        new_dataset = raw_dataset["train"].train_test_split(test_size=0.15)
+        raw_dataset["train"] = new_dataset["train"]
+        raw_dataset["validation"] = new_dataset["test"]
+
     if data_args.text_column_name not in next(iter(raw_dataset.values())).column_names:
         raise ValueError(f"Text column {data_args.text_column_name} not found in dataset. Available columns: {next(iter(raw_dataset.values()))[0].keys()}")
     if data_args.label_column_name not in next(iter(raw_dataset.values())).column_names:
@@ -205,9 +212,18 @@ def main():
             raw_dataset["train"] = raw_dataset["train"].select(range(data_args.max_train_samples))
         if data_args.max_eval_samples is not None:
             raw_dataset["validation"] = raw_dataset["validation"].select(range(data_args.max_eval_samples))
+
+    unique_labels = set(raw_dataset["train"][data_args.label_column_name])
+    label2id = {label: i for i, label in enumerate(unique_labels)}
+    id2label = {i: label for i, label in enumerate(unique_labels)}
+    config.num_labels = len(unique_labels)
+    config.label2id = label2id
+    config.id2label = id2label
+
     def prepare_dataset(batch):
         texts = batch[data_args.text_column_name]
         labels = batch[data_args.label_column_name]
+        labels = [label2id[label] for label in labels]
 
         tokenized_batch = tokenizer(
             texts,
@@ -219,8 +235,64 @@ def main():
             'attention_mask': tokenized_batch['attention_mask'],
             'labels': labels
         }
+    
+    remove_columns = raw_dataset["train"].column_names
+    with training_args.main_process_first(desc="dataset map pre-processing"):
+        vectorized_datasets = raw_dataset.map(
+            prepare_dataset,
+            batched=True,
+            num_proc=data_args.preprocessing_num_workers or os.cpu_count(),
+            remove_columns=remove_columns,
+            load_from_cache_file=not data_args.overwrite_cache,
+            desc="Preprocess train dataset",
+        )
+    if data_args.preprocessing_only:
+        cache = {k: v.cache_files for k, v in vectorized_datasets.items()}
+        logger.info(f"Data preprocessing finished. Files cached at {cache}.")
+        return
 
+    # 6. Load the model
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name,
+        config=config,
+        cache_dir=model_args.cache_dir,
+    )
+    if model_args.overwrite_vocalb:
+        model.resize_token_embeddings(len(tokenizer))
 
+    # 7. Save config
+    with training_args.main_process_first():
+        # only the main process saves them
+        if is_main_process(training_args.local_rank):
+            # save feature extractor, tokenizer and config
+            config.save_pretrained(training_args.output_dir)
+
+    # 8. Create the data collator
+    data_collator = SeqClassificationCollator(tokenizer)
+    # 9 . Create the trainer
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=vectorized_datasets["train"] if training_args.do_train else None,
+        eval_dataset=vectorized_datasets["validation"] if training_args.do_eval else None,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+    )
+    # 10. Train the model
+    if training_args.do_train:
+        train_result = trainer.train()
+        trainer.save_model()  # Saves the tokenizer too for easy upload
+        trainer.log_metrics("train", train_result.metrics)
+        trainer.save_metrics("train", train_result.metrics)
+        trainer.save_state()
+    if training_args.do_eval:
+        logger.info("*** Evaluate ***")
+        metrics = trainer.evaluate()
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+
+if __name__ == "__main__":
+    main()
 
     
 

@@ -365,7 +365,8 @@ def main():
     data_collator = DataCollatorWithPadding(
         processor=processor,
         forward_attention_mask=forward_attention_mask,
-    )
+    ) 
+    # 10. Training and evaluation
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -373,7 +374,7 @@ def main():
         eval_dataset=vectorized_datasets["validation"] if training_args.do_eval else None,
         data_collator=data_collator,
     )
-    # 10. Training and evaluation
+   
     if training_args.do_train:
         train_result = trainer.train()
         trainer.save_model()  # Saves the tokenizer too for easy upload
