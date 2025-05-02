@@ -91,7 +91,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create a model and tokenizer from the Hugging Face Hub")
     parser.add_argument("--model_name", type=str, required=True, help="Name of the model on the Hugging Face Hub")
     parser.add_argument("--pytorch_dump_folder_path", type=str, required=True, help="Directory to save the model")
-    parser.add_argument("--model_type", type=str, default="causal_lm", choices=["causal_lm", "seq2seq"], help="Type of model")
+    parser.add_argument("--model_type", type=str, default=None, help="Type of model")
     parser.add_argument("--repo_id", type=str, default=None, help="Repository ID for pushing to the Hugging Face Hub")
 
     args = parser.parse_args()
