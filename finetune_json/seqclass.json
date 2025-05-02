@@ -1,5 +1,5 @@
 {
-    "model_name_or_path": "Minos-v1",
+    "model_name_or_path": "NousResearch/Minos-v1",
     "cache_dir": "./seqclass_cache",
 
     "do_train": true,
