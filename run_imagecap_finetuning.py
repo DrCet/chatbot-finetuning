@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import sys
 import os
 from typing import Any, List, Dict, Union
+from huggingface_hub import resume_inference_endpoint
 import torch
 import logging
 from transformers.trainer_utils import is_main_process
@@ -266,21 +267,7 @@ def main():
         transformers.utils.logging.set_verbosity_info()
     logger.info("Training/evaluation parameters %s", training_args)
 
-
-    #3. Detecting last checkpoint and eventually continue from it
-    last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
-        last_checkpoint = transformers.trainer_utils.get_last_checkpoint(training_args.output_dir)
-        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
-            )
-        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
-            logger.info(
-                f"Checkpoint detected, resuming training at {last_checkpoint}."
-            )
-
-    # 4. Load dataset
+    # 3. Load dataset
     raw_datasets = DatasetDict()
     if training_args.do_train:
         raw_datasets['train'] = load_dataset(
@@ -303,7 +290,8 @@ def main():
     if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.text_column_name} not found in dataset.")
 
-    # 5. Load processor and config
+    # 4. Load processor and config
+    # The config is here for the future use 
     config = AutoConfig.from_pretrained(
         model_args.config_name_or_path if model_args.config_name_or_path else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -387,8 +375,7 @@ def main():
     )
     # 10. Training and evaluation
     if training_args.do_train:
-        checkpoint = last_checkpoint if last_checkpoint is not None else None
-        train_result = trainer.train(resume_from_checkpoint=checkpoint)
+        train_result = trainer.train()
         trainer.save_model()  # Saves the tokenizer too for easy upload
         trainer.log_metrics("train", train_result.metrics)
         trainer.save_metrics("train", train_result.metrics)

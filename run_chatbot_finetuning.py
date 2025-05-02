@@ -387,6 +387,7 @@ def main():
     # 5. Load tokenizer and config
     if model_args.model_name_or_path:
         # Load configuration from pre-trained model or custom path
+        # It has not much use now, but it is here for future use
         config = AutoConfig.from_pretrained(
             model_args.config_name if model_args.config_name else model_args.model_name_or_path,
             cache_dir=model_args.cache_dir,

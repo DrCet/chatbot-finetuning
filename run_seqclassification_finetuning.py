@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass, field
+import tokenize
 from typing import List, Dict, Union
 import torch
 import sys
@@ -8,12 +9,15 @@ import os
 logger = logging.getLogger(__name__)
 
 import datasets
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict
 import transformers
 from transformers.trainer_utils import is_main_process
 from transformers import (
     TrainingArguments,
     HFArgumentParser,
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    AutoConfig,
 )
 
 @dataclass
@@ -33,7 +37,7 @@ class SeqClassificationModelArguments:
         default=None,
         metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
     )
-    cach_dir: str = field(
+    cache_dir: str = field(
         default=None,
         metadata={"help": "Path to cache directory for storing downloaded models"}
     )
@@ -86,6 +90,11 @@ class SeqClassificationDataArguments:
         metadata={"help": "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
                           "value if set."}
     )
+    num_labels: int = field(
+        default=2,
+        metadata={"help": "The number of labels for the classification task."}
+    )
+
 
 
 class SeqClassificationCollator:
@@ -93,8 +102,8 @@ class SeqClassificationCollator:
         self.tokenizer = tokenizer
     def __call__(self, features: Dict[str, Union[List[str], torch.Tensor]]) -> Dict[str, torch.Tensor]:
         # Extract the text and labels from the features
-        texts = [feature['text'] for feature in features]
-        labels = [feature['label'] for feature in features]
+        texts = [feature['input_ids'] for feature in features]
+        labels = torch.tensor([feature['label'] for feature in features])
 
         # Tokenize the texts
         encodings = self.tokenizer(texts, truncation=True, padding='max_length', return_tensors='pt')
@@ -152,3 +161,66 @@ def main():
     if is_main_process(training_args.local_rank):
         transformers.utils.logging.set_verbosity_info()
     logger.info("Training/evaluation parameters %s", training_args)
+
+    # 3. Load the dataset
+    raw_dataset = DatasetDict() 
+    if training_args.do_train:
+        raw_dataset["train"] = load_dataset(
+            data_args.dataset_name_or_path, 
+            data_args.dataset_subset_name, 
+            split=data_args.train_split_name,
+            cache_dir=model_args.cache_dir
+        )
+    if training_args.do_eval:
+        raw_dataset['validation'] = load_dataset(
+            data_args.dataset_name_or_path, 
+            data_args.dataset_subset_name, 
+            split=data_args.eval_split_name
+            cache_dir=model_args.cache_dir
+        )
+    if data_args.text_column_name not in next(iter(raw_dataset.values())).column_names:
+        raise ValueError(f"Text column {data_args.text_column_name} not found in dataset. Available columns: {next(iter(raw_dataset.values()))[0].keys()}")
+    if data_args.label_column_name not in next(iter(raw_dataset.values())).column_names:
+        raise ValueError(f"Label column {data_args.label_column_name} not found in dataset. Available columns: {next(iter(raw_dataset.values()))[0].keys()}")
+    
+    # 4. Load the tokenizer, config 
+    # The config is used to set the number of labels for the classification task
+    config = AutoConfig.from_pretrained(
+        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        num_labels=2,  # Assuming binary classification
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        use_fast=model_args.use_fast_tokenizer,
+    )
+
+    # Adjust the config
+    config.num_labels = data_args.num_labels
+    
+    # 5. Preporcess the dataset
+    with training_args.main_process_first():
+        if data_args.max_train_samples is not None:
+            raw_dataset["train"] = raw_dataset["train"].select(range(data_args.max_train_samples))
+        if data_args.max_eval_samples is not None:
+            raw_dataset["validation"] = raw_dataset["validation"].select(range(data_args.max_eval_samples))
+    def prepare_dataset(batch):
+        texts = batch[data_args.text_column_name]
+        labels = batch[data_args.label_column_name]
+
+        tokenized_batch = tokenizer(
+            texts,
+            return_tensors=None
+        )
+
+        return {
+            'input_ids': tokenized_batch['input_ids'],
+            'attention_mask': tokenized_batch['attention_mask'],
+            'labels': labels
+        }
+
+
+
+    
+
