@@ -94,6 +94,11 @@ class SeqClassificationDataArguments:
         default=None,
         metadata={"help": "The number of processes to use for the preprocessing."}
     )
+    preprocessing_only: bool = field(
+        default=False,
+        metadata={"help": "If set, only preprocess the dataset and exit."}
+    )
+    
 
 
 
