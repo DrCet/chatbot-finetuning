@@ -1,7 +1,5 @@
-from curses import raw
 import logging
 from dataclasses import dataclass, field
-import tokenize
 from typing import List, Dict, Union
 import torch
 import sys
@@ -177,7 +175,7 @@ def main():
         raw_dataset['validation'] = load_dataset(
             data_args.dataset_name_or_path, 
             data_args.dataset_subset_name, 
-            split=data_args.eval_split_name
+            split=data_args.eval_split_name,
             cache_dir=model_args.cache_dir
         )
     elif not training_args.eval_split_name:
