@@ -13,7 +13,7 @@ import transformers
 from transformers.trainer_utils import is_main_process
 from transformers import (
     TrainingArguments,
-    HFArgumentParser,
+    HfArgumentParser,
     AutoTokenizer,
     AutoModelForSequenceClassification,
     AutoConfig,
@@ -120,7 +120,7 @@ class SeqClassificationCollator:
 
 def main():
     # 1. Initialize the arguments
-    parser = HFArgumentParser((SeqClassificationModelArguments, SeqClassificationDataArguments, SeqClassificationTrainingArguments))
+    parser = HfArgumentParser((SeqClassificationModelArguments, SeqClassificationDataArguments, SeqClassificationTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):        
         # If we pass only one argument to the script and it's the path to a json file, let's parse it to get our arguments.
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
