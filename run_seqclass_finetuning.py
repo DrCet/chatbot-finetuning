@@ -178,7 +178,7 @@ def main():
             split=data_args.eval_split_name,
             cache_dir=model_args.cache_dir
         )
-    elif not training_args.eval_split_name:
+    elif not data_args.eval_split_name:
         new_dataset = raw_dataset["train"].train_test_split(test_size=0.15)
         raw_dataset["train"] = new_dataset["train"]
         raw_dataset["validation"] = new_dataset["test"]
