@@ -4,21 +4,14 @@ from transformers import (
     AutoModelForCausalLM,
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
+    AutoModelForSequenceClassification
 )
-from huggingface_hub import whoami
 from transformers.utils import logging
-from huggingface_hub import login, notebook_login
+
 
 logging.set_verbosity_info()
 logger = logging.get_logger("chatbot_finetuning.model")
 
-def is_notebook_environment():
-    """Check if running in a notebook environment (e.g., Kaggle, Jupyter, Colab)."""
-    try:
-        from IPython import get_ipython
-        return get_ipython() is not None
-    except ImportError:
-        return False
 
 def create_model(
     model_name: str,
@@ -32,7 +25,7 @@ def create_model(
     Args:
         model_name: Name of the model on the Hugging Face Hub (e.g., "meta-llama/Llama-3-8b").
         pytorch_dump_folder_path: Directory to save the model and tokenizer.
-        model_type: Type of model ("causal_lm" or "seq2seq"). Defaults to "causal_lm".
+        model_type: Type of model ("causal_lm", "seq2seq", "text_classification). Defaults to "causal_lm".
         repo_id: Optional repository ID to push the model to the Hugging Face Hub.
 
     Raises:
@@ -42,13 +35,19 @@ def create_model(
     # Validate inputs
     if not model_name:
         raise ValueError("model_name must be provided")
-    if model_type not in ["causal_lm", "seq2seq"]:
+    if model_type not in ["causal_lm", "seq2seq", "text_classification"]:
         raise ValueError("model_type must be 'causal_lm' or 'seq2seq'")
     if not os.path.isdir(pytorch_dump_folder_path):
         os.makedirs(pytorch_dump_folder_path, exist_ok=True)
 
     # Select model class
-    model_class = AutoModelForCausalLM if model_type == "causal_lm" else AutoModelForSeq2SeqLM
+    model_mapping = {
+        "causal_lm": AutoModelForCausalLM,
+        "seq2seq": AutoModelForSeq2SeqLM,
+        "text_classification": AutoModelForSequenceClassification,  # Placeholder, adjust as needed
+    }
+
+    model_class = model_mapping.get(model_type)
 
     # Check if model exists locally
     if os.path.exists(os.path.join(pytorch_dump_folder_path, "config.json")):
@@ -91,7 +90,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create a model and tokenizer from the Hugging Face Hub")
     parser.add_argument("--model_name", type=str, required=True, help="Name of the model on the Hugging Face Hub")
     parser.add_argument("--pytorch_dump_folder_path", type=str, required=True, help="Directory to save the model")
-    parser.add_argument("--model_type", type=str, default=None, help="Type of model")
+    parser.add_argument("--model_type", type=str, default="causal_lm", choices=["causal_lm", "seq2seq", "text_classification"], help="Type of model")
     parser.add_argument("--repo_id", type=str, default=None, help="Repository ID for pushing to the Hugging Face Hub")
 
     args = parser.parse_args()
