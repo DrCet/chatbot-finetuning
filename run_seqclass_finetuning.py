@@ -237,7 +237,6 @@ def main():
             batched=True,
             num_proc=data_args.preprocessing_num_workers or os.cpu_count(),
             remove_columns=remove_columns,
-            load_from_cache_file=not data_args.overwrite_cache,
             desc="Preprocess train dataset",
         )
     if data_args.preprocessing_only:
