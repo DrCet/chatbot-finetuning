@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-@dataclass
 class ModelArguments:
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
@@ -69,15 +68,7 @@ class ModelArguments:
 
 @dataclass
 class ImageCapTrainingArguments(TrainingArguments):
-    do_step_schedule_per_epoch: bool = field(
-        default=True,
-        metadata={"help": "Whether to do step schedule per epoch."}
-    )
-    lr_decay: float = field(
-        default=0.999875,
-        metadata={"help": "Learning rate decay, used with `ExponentialLR` when `do_step_schedule_per_epoch`."},
-    )
-
+    pass
 @dataclass
 class DataTrainingArguments:
     project_name: str = field(

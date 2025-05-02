@@ -32,7 +32,6 @@
     "adam_epsilon": 1e-8,
     "lr_scheduler_type": "linear",
     "warmup_steps": 0,
-    "do_step_schedule_per_epoch": true,
     "save_total_limit": 3,
     "fp16": true,
     "cache_dir": "./test_output/cache"
