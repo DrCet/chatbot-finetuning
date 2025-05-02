@@ -192,8 +192,7 @@ def main():
     # The config is used to set the number of labels for the classification task
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        num_labels=2,  # Assuming binary classification
+        cache_dir=model_args.cache_dir
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -201,9 +200,6 @@ def main():
         use_fast=model_args.use_fast_tokenizer,
     )
 
-    # Adjust the config
-    config.num_labels = data_args.num_labels
-    
     # 5. Preporcess the dataset
     with training_args.main_process_first():
         if data_args.max_train_samples is not None:
