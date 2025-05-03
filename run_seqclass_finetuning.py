@@ -252,7 +252,7 @@ def main():
 
     # 6. Load the model
     class SeqClassificationModel(nn.Module):
-        def __init__(self, config, dropout_prob=0.1):
+        def __init__(self, config=config, dropout_prob=0.1):
             super().__init__()
             self.config = config
             self.pretrained_model = AutoModel.from_pretrained(
