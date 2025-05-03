@@ -160,9 +160,6 @@ def load_model(checkpoint: str, config):
             "GitForCausalLM": AutoModelForCausalLM,
             "BlipForConditionalGeneration": AutoModelForVision2Seq,
             "VisionEncoderDecoderModel": AutoModelForVision2Seq,
-            "T5ForConditionalGeneration": AutoModelForSeq2SeqLM,
-            "BartForConditionalGeneration": AutoModelForSeq2SeqLM,
-            "MBartForConditionalGeneration": AutoModelForSeq2SeqLM
         }
 
         # Load configuration
@@ -179,7 +176,7 @@ def load_model(checkpoint: str, config):
                 break
 
         if model_class is None:
-            logger.warning(f"Unknown architecture {architecture}. Defaulting to AutoModelForCausalLM.")
+            logger.warning(f"Unknown architecture {architecture}.")
             return None
 
         # Load model
@@ -276,11 +273,12 @@ def main():
     def prepare_dataset(batch):
         images = batch[data_args.image_column_name]
         texts = batch[data_args.text_column_name]
-        inputs = processor(images=images, text=texts, return_tensors=None)
+        image_inputs = processor.image_processor(images=images, return_tensors=None)
+        text_inputs = processor.tokenizer(texts, return_tensors=None)
         return {
-            "pixel_values": inputs["pixel_values"],
-            "input_ids": inputs["input_ids"] ,
-            "attention_mask": inputs["attention_mask"]
+            "pixel_values": image_inputs["pixel_values"],
+            "input_ids": text_inputs["input_ids"] ,
+            "attention_mask": text_inputs["attention_mask"]
         }
 
     remove_columns = raw_datasets["train"].column_names
