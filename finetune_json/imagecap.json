@@ -11,6 +11,8 @@
     "image_column_name": "image",
     "text_column_name": "prompt",
     "train_split_name": "train",
+    "max_train_samples": 100,
+    "max_eval_samples": 100,
 
   
     "do_train": true,
