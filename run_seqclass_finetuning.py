@@ -112,7 +112,7 @@ class SeqClassificationCollator:
         labels = torch.tensor([feature['labels'] for feature in features])
 
         # Tokenize the texts
-        encodings = self.tokenizer.pad(texts, truncation=True, padding='max_length', return_tensors='pt')
+        encodings = self.tokenizer.pad(texts,  padding=True, return_tensors='pt')
 
         # Create a batch dictionary
         batch = {
