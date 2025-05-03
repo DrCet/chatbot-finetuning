@@ -5,16 +5,15 @@
     "overwrite_vocabulary": false,
   
     "dataset_name": "Cets/imagecap",
-    "dataset_config_name": null,
-  
-    "overwrite_cache": true,
+
+
     "preprocessing_num_workers": 4,
     "image_column_name": "image",
     "text_column_name": "prompt",
     "preprocessing_only": false,
     "train_split_name": "train",
     "eval_split_name": "validation",
-    "do_lower_case": false,
+
   
     "do_train": true,
     "do_eval": true,
@@ -25,8 +24,6 @@
     "logging_strategy": "steps",
     "logging_steps": 100,
     "report_to": "tensorboard",
-    "fp16": true,
-    "seed": 42,
-    "do_step_schedule_per_epoch": true,
-    "lr_decay": 0.999875
+    "lr_scheduler_type": "cosine",
+    "warmup_steps": 10
   }
