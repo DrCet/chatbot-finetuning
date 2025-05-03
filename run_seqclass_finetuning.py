@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Union
 import torch
+import torch.nn as nn
 import sys
 import os
 
@@ -15,7 +16,7 @@ from transformers import (
     TrainingArguments,
     HfArgumentParser,
     AutoTokenizer,
-    AutoModelForSequenceClassification,
+    AutoModel,
     AutoConfig,
     Trainer
 )
@@ -45,7 +46,7 @@ class SeqClassificationModelArguments:
         default=True,
         metadata={"help": "Whether to use fast tokenizer or not"}
     )
-    overwrite_vocalb: bool = field(
+    overwrite_vocab: bool = field(
         default=False,
         metadata={"help": "Whether to overwrite the vocabulary of the model"}
     )
@@ -250,14 +251,46 @@ def main():
         return
 
     # 6. Load the model
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name,
-        config=config,
-        cache_dir=model_args.cache_dir,
-    )
-    if model_args.overwrite_vocalb:
-        model.resize_token_embeddings(len(tokenizer))
+    class SeqClassificationModel(nn.Model): 
+        def __init__(self, config=config, dropout_prob=0.1):
+            super().__init__()
+            self.pretrained_model = AutoModel.from_pretrained(
+                model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name,
+                config=config,
+                cache_dir=model_args.cache_dir,
+            )
+            if model_args.overwrite_vocab:
+                self.pretrained_model.resize_token_embeddings(len(tokenizer))
 
+            self.dropout = nn.Dropout(dropout_prob)
+            self.hidden_layer = nn.Linear(self.config.hidden_size, config.num_labels)
+            self.softmax = nn.Softmax(dim=-1)
+            self._init_weights(self.hidden_layer)
+
+        def _init_weights(self, module):
+            if isinstance(module, nn.Linear):
+                module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+                if module.bias is not None:
+                    module.bias.data.zero_()
+        def forward(self, input_ids=None, attention_mask=None, labels=None, **kwargs):
+            # Get outputs from the pretrained model
+            outputs = self.pretrained_model(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+
+            pooled_output = self.dropout(outputs[1])
+            hidden_output = self.relu(self.hidden_layer(pooled_output))
+            logits = self.classifier(hidden_output)
+            probs = self.softmax(logits)  
+            
+            loss = None
+            if labels is not None:
+                loss_fct = nn.NLLLoss()  # NLLLoss expects log-probabilities
+                # Convert probabilities to log-probabilities
+                log_probs = torch.log(probs + 1e-10)  # Add small epsilon to avoid log(0)
+                loss = loss_fct(log_probs.view(-1, self.config.num_labels), labels.view(-1))
+            
+            # Return logits for metrics compatibility, loss if training
+            return {"loss": loss, "logits": logits} if loss is not None else {"logits": logits}
+    model = SeqClassificationModel(config=config)
     # 7. Save config
     with training_args.main_process_first():
         # only the main process saves them
