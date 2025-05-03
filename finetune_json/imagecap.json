@@ -4,15 +4,13 @@
     "use_fast_tokenizer": true,
     "overwrite_vocabulary": false,
   
-    "dataset_name": "Cets/imagecap",
+    "dataset_name": "johnslegers/Legacy-Mage-Hampsty",
 
 
     "preprocessing_num_workers": 4,
     "image_column_name": "image",
     "text_column_name": "prompt",
-    "preprocessing_only": false,
     "train_split_name": "train",
-    "eval_split_name": "validation",
 
   
     "do_train": true,
