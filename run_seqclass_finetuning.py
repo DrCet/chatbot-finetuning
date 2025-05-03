@@ -109,7 +109,7 @@ class SeqClassificationCollator:
     def __call__(self, features: Dict[str, Union[List[str], torch.Tensor]]) -> Dict[str, torch.Tensor]:
         # Extract the text and labels from the features
         texts = [feature['input_ids'] for feature in features]
-        labels = torch.tensor([feature['label'] for feature in features])
+        labels = torch.tensor([feature['labels'] for feature in features])
 
         # Tokenize the texts
         encodings = self.tokenizer(texts, truncation=True, padding='max_length', return_tensors='pt')
@@ -264,7 +264,7 @@ def main():
                 self.pretrained_model.resize_token_embeddings(len(tokenizer))
 
             self.dropout = nn.Dropout(dropout_prob)
-            self.hidden_layer = nn.Linear(self.config.hidden_size, config.num_labels)
+            self.hidden_layer = nn.Linear(self.config.hidden_size, self.config.num_labels)
             self.softmax = nn.Softmax(dim=-1)
             self._init_weights(self.hidden_layer)
 
