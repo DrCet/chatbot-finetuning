@@ -7,7 +7,7 @@
     "dataset_name": "johnslegers/Legacy-Mage-Hampsty",
 
 
-    "preprocessing_num_workers": 4,
+    "preprocessing_num_workers": 1,
     "image_column_name": "image",
     "text_column_name": "prompt",
     "train_split_name": "train",
