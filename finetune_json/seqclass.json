@@ -1,6 +1,6 @@
 {
-    "model_name_or_path": "BAAI/bge-reranker-v2-m3",
-    "cache_dir": "./bge_cache",
+    "model_name_or_path": "NousResearch/Minos-v1",
+    "cache_dir": "./seqclass_cache",
 
     "do_train": true,
     "do_eval": true,

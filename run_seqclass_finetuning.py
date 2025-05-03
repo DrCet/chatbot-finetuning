@@ -106,7 +106,7 @@ class SeqClassificationDataArguments:
 class SeqClassificationCollator:
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-    def __call__(self, features: Dict[str, Union[List[str], torch.Tensor]]) -> Dict[str, torch.Tensor]:
+    def __call__(self, features: Dict[str, Union[List[int], torch.Tensor]]) -> Dict[str, torch.Tensor]:
         # Extract the text and labels from the features
         texts = [feature['input_ids'] for feature in features]
         labels = torch.tensor([feature['labels'] for feature in features])
