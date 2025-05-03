@@ -99,6 +99,10 @@ class SeqClassificationDataArguments:
         default=False,
         metadata={"help": "If set, only preprocess the dataset and exit."}
     )
+    preprocessing_batch_size: int = field(
+        default=1000,
+        metadata={"help": "Batch size for preprocessing."}
+    )
     
 
 
@@ -241,6 +245,7 @@ def main():
         vectorized_datasets = raw_dataset.map(
             prepare_dataset,
             batched=True,
+            batch_size=data_args.preprocessing_batch_size,
             num_proc=data_args.preprocessing_num_workers or os.cpu_count(),
             remove_columns=remove_columns,
             desc="Preprocess train dataset",
