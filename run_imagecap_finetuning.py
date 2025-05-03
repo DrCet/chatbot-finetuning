@@ -14,10 +14,10 @@ from transformers import (
     TrainingArguments,
     HfArgumentParser,
     AutoConfig,
-    AutoProcessor,
     AutoModelForVision2Seq,
     AutoModelForCausalLM,
-    AutoModelForSeq2SeqLM,
+    AutoTokenizer,
+    AutoImageProcessor,
     Trainer
 )
 import transformers
@@ -126,7 +126,7 @@ class DataCollatorWithPadding:
         processor ([`PreTrainedProcessor`]): The processor used for processing the inputs.
 
     '''
-    def __init__(self, processor, forward_attention_mask: bool = True):
+    def __init__(self, image_processor, tokenizer, forward_attention_mask: bool = True):
         self.processor = processor
         self.forward_attention_mask = forward_attention_mask
     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
@@ -256,10 +256,15 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    processor = AutoProcessor.from_pretrained(
+    image_processor = AutoImageProcessor.from_pretrained(
         model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
         cache_dir=model_args.cache_dir,
 
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        use_fast=model_args.use_fast_tokenizer,
     )
 
 
@@ -273,8 +278,8 @@ def main():
     def prepare_dataset(batch):
         images = batch[data_args.image_column_name]
         texts = batch[data_args.text_column_name]
-        image_inputs = processor.image_processor(images=images, return_tensors=None)
-        text_inputs = processor.tokenizer(texts, return_tensors=None)
+        image_inputs = image_processor(images=images, return_tensors=None)
+        text_inputs = tokenizer(texts, return_tensors=None)
         return {
             "pixel_values": image_inputs["pixel_values"],
             "input_ids": text_inputs["input_ids"] ,
@@ -302,19 +307,20 @@ def main():
     )
     if model_args.overwrite_vocabulary:
         try:
-            model.resize_token_embeddings(len(processor.tokenizer))
+            model.resize_token_embeddings(len(tokenizer))
         except Exception as e:
             logger.warning(f"Failed to resize token embeddings: {e}.")
             raise e
     # 8. Save config and processor
     with training_args.main_process_first():
         if is_main_process(training_args.local_rank):
-            processor.save_pretrained(training_args.output_dir)
+            image_processor.save_pretrained(training_args.output_dir)
+            tokenizer.save_pretrained(training_args.output_dir)
             config.save_pretrained(training_args.output_dir)
 
     # 9. Define data collator
     data_collator = DataCollatorWithPadding(
-        processor=processor
+        image_processor=image_processor, tokenizer=tokenizer
     ) 
 
     # 10. Training and evaluation
