@@ -114,6 +114,10 @@ class DataTrainingArguments:
             "help": "The name of the evaluation split in the dataset."
         },
     )
+    preprocessing_batch_size: int = field(
+        default=1000,
+        metadata={"help": "Batch size for preprocessing."}
+    )
 @dataclass
 class DataCollatorWithPadding:
     '''
