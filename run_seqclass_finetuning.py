@@ -251,8 +251,8 @@ def main():
         return
 
     # 6. Load the model
-    class SeqClassificationModel(nn.Module): 
-        def __init__(self, config=config, dropout_prob=0.1):
+    class SeqClassificationModel(nn.Module):
+        def __init__(self, config, dropout_prob=0.1):
             super().__init__()
             self.config = config
             self.pretrained_model = AutoModel.from_pretrained(
@@ -264,32 +264,47 @@ def main():
                 self.pretrained_model.resize_token_embeddings(len(tokenizer))
 
             self.dropout = nn.Dropout(dropout_prob)
-            self.hidden_layer = nn.Linear(self.config.hidden_size, self.config.num_labels)
+            self.hidden_layer = nn.Linear(self.config.hidden_size, self.config.hidden_size // 2)  # Intermediate layer
+            self.relu = nn.ReLU()  # Define relu
+            self.classifier = nn.Linear(self.config.hidden_size // 2, self.config.num_labels)  # Final classifier
             self.softmax = nn.Softmax(dim=-1)
             self._init_weights(self.hidden_layer)
+            self._init_weights(self.classifier)
 
         def _init_weights(self, module):
             if isinstance(module, nn.Linear):
                 module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
                 if module.bias is not None:
                     module.bias.data.zero_()
-        def forward(self, input_ids=None, attention_mask=None, labels=None, **kwargs):
-            # Get outputs from the pretrained model
-            outputs = self.pretrained_model(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
 
-            pooled_output = self.dropout(outputs[1])
+        def forward(self, input_ids=None, attention_mask=None, labels=None, **kwargs):
+            # Filter kwargs to only include those accepted by pretrained_model
+            valid_kwargs = {k: v for k, v in kwargs.items() if k in ['token_type_ids', 'position_ids', 'head_mask', 'inputs_embeds']}
+            
+            # Get outputs from the pretrained model
+            outputs = self.pretrained_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                **valid_kwargs
+            )
+            
+            # ModernBertModel may return sequence_output; use mean pooling for classification
+            sequence_output = outputs[0]  # Shape: [batch_size, seq_len, hidden_size]
+            pooled_output = sequence_output.mean(dim=1)  # Mean pooling over sequence length
+            
+            # Custom classification head
+            pooled_output = self.dropout(pooled_output)
             hidden_output = self.relu(self.hidden_layer(pooled_output))
             logits = self.classifier(hidden_output)
-            probs = self.softmax(logits)  
-            
+            probs = self.softmax(logits)
+
+            # Compute loss if labels are provided
             loss = None
             if labels is not None:
                 loss_fct = nn.NLLLoss()  # NLLLoss expects log-probabilities
-                # Convert probabilities to log-probabilities
-                log_probs = torch.log(probs + 1e-10)  # Add small epsilon to avoid log(0)
+                log_probs = torch.log(probs + 1e-10)  # Add epsilon to avoid log(0)
                 loss = loss_fct(log_probs.view(-1, self.config.num_labels), labels.view(-1))
-            
-            # Return logits for metrics compatibility, loss if training
+
             return {"loss": loss, "logits": logits} if loss is not None else {"logits": logits}
     model = SeqClassificationModel()
     # 7. Save config
