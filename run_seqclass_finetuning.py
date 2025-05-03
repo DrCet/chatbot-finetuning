@@ -290,7 +290,7 @@ def main():
             
             # Return logits for metrics compatibility, loss if training
             return {"loss": loss, "logits": logits} if loss is not None else {"logits": logits}
-    model = SeqClassificationModel(config=config)
+    model = SeqClassificationModel()
     # 7. Save config
     with training_args.main_process_first():
         # only the main process saves them
