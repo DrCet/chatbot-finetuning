@@ -46,22 +46,6 @@ class ModelArguments:
         default=True,
         metadata={"help": "Whether to use the fast tokenizer (backed by the 🤗 Tokenizers library)."}
     )
-    model_revision: str = field(
-        default="main",
-        metadata={"help": "Revision of the model to use (can be a branch name, tag name or git commit id)."}
-    )
-    token: str = field(
-        default=None,
-        metadata={"help": "Huggingface token for private models"}
-    )
-    use_auth_token: bool = field(
-        default=False,
-        metadata={"help": "Will use the token from the cache or login if not already done."}
-    )
-    trust_remote_code: bool = field(
-        default=False,
-        metadata={"help": "Whether to allow the use of code from the model repo."}
-    )
     overwrite_vocabulary: bool = field(
         default=False,
         metadata={"help": "Whether to overwrite the vocabulary."}
@@ -72,10 +56,6 @@ class ImageCapTrainingArguments(TrainingArguments):
     pass
 @dataclass
 class DataTrainingArguments:
-    project_name: str = field(
-        default='ImageCationingFinetuning',
-        metadata={"help": "The name of the project to use for logging."},
-    )
     dataset_name: str = field(
         default=None,
         metadata={"help": "The name of the dataset to use (via the datasets library)."},
@@ -98,12 +78,6 @@ class DataTrainingArguments:
             "value if set."
         },
     )
-    overwrite_cache: bool = field(
-        default=False,
-        metadata={
-            "help": "Overwrite the cached training and evaluation sets"
-        },
-    )
     preprocessing_num_workers: int = field(
         default=None,
         metadata={
@@ -122,13 +96,6 @@ class DataTrainingArguments:
             "help": "The column name of the text in the dataset."
         },
     )
-    max_token_length: int = field(
-        default=128,
-        metadata={
-            "help": "The maximum total input sequence length after tokenization. Sequences longer "
-            "than this will be truncated, sequences shorter will be padded."
-        },
-    )
     preprocessing_only: bool = field(
         default=False,
         metadata={
@@ -136,27 +103,15 @@ class DataTrainingArguments:
         },
     )
     train_split_name: str = field(
-        default="train",
+        default=None,
         metadata={
             "help": "The name of the training split in the dataset."
         },
     )
     eval_split_name: str = field(
-        default="validation",
+        default=None,
         metadata={
             "help": "The name of the evaluation split in the dataset."
-        },
-    )
-    do_lower_case: bool = field(   
-        default=False,
-        metadata={
-            "help": "Whether to do lower case for the tokenizer."
-        },
-    )
-    do_normailze: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether to do normalization for the tokenizer."
         },
     )
 @dataclass
@@ -221,7 +176,7 @@ def load_model(checkpoint: str, config):
 
         if model_class is None:
             logger.warning(f"Unknown architecture {architecture}. Defaulting to AutoModelForCausalLM.")
-            model_class = AutoModelForCausalLM
+            return None
 
         # Load model
         model = model_class.from_pretrained(checkpoint)
@@ -277,14 +232,18 @@ def main():
             cache_dir=model_args.cache_dir,
             token=model_args.token
         )
-    if training_args.do_eval:
+    if training_args.do_eval and data_args.eval_split_name is not None:
         raw_datasets['validation'] = load_dataset(
-            data_args.dataset_name,
-            data_args.dataset_config_name,
+            data_args.dataset_name_or_path, 
+            data_args.dataset_subset_name, 
             split=data_args.eval_split_name,
-            cache_dir=model_args.cache_dir,
-            token=model_args.token
+            cache_dir=model_args.cache_dir
         )
+    elif not data_args.eval_split_name:
+        new_dataset = raw_datasets["train"].train_test_split(test_size=0.15)
+        raw_datasets["train"] = new_dataset["train"]
+        raw_datasets["validation"] = new_dataset["test"]
+
     if data_args.image_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.image_column_name} not found in dataset.")
     if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
@@ -309,8 +268,7 @@ def main():
     )
 
 
-    # 6. Preprocess the datasets
-    forward_attention_mask = True
+    # 5. Preprocess the datasets
     with training_args.main_process_first():
         if data_args.max_train_samples is not None:
             raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
@@ -334,7 +292,6 @@ def main():
             batched=True,
             num_proc=data_args.preprocessing_num_workers or os.cpu_count(),
             remove_columns=remove_columns,
-            load_from_cache_file=not data_args.overwrite_cache,
             desc="Preprocess train dataset",
         )
     if data_args.preprocessing_only:
@@ -353,19 +310,17 @@ def main():
         except Exception as e:
             logger.warning(f"Failed to resize token embeddings: {e}.")
             raise e
-    # 8. Save configs
-    # make sure all processes wait until data is saved
+    # 8. Save config and processor
     with training_args.main_process_first():
-        # only the main process saves them
         if is_main_process(training_args.local_rank):
-            # save feature extractor, tokenizer and config
             processor.save_pretrained(training_args.output_dir)
             config.save_pretrained(training_args.output_dir)
+
     # 9. Define data collator
     data_collator = DataCollatorWithPadding(
-        processor=processor,
-        forward_attention_mask=forward_attention_mask,
+        processor=processor
     ) 
+    
     # 10. Training and evaluation
     trainer = Trainer(
         model=model,

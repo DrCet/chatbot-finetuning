@@ -1,13 +1,9 @@
 {
     "model_name_or_path": "microsoft/git-base",
-    "cache_dir": "./cache",
+    "cache_dir": "./git-base-cache",
     "use_fast_tokenizer": true,
-    "model_revision": "main",
-    "use_auth_token": false,
-    "trust_remote_code": false,
     "overwrite_vocabulary": false,
   
-    "project_name": "ImageCaptioningTest",
     "dataset_name": "Cets/imagecap",
     "dataset_config_name": null,
   
@@ -15,7 +11,6 @@
     "preprocessing_num_workers": 4,
     "image_column_name": "image",
     "text_column_name": "prompt",
-    "max_token_length": 128,
     "preprocessing_only": false,
     "train_split_name": "train",
     "eval_split_name": "validation",
