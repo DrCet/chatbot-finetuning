@@ -127,12 +127,13 @@ class DataCollatorWithPadding:
 
     '''
     def __init__(self, image_processor, tokenizer, forward_attention_mask: bool = True):
-        self.processor = processor
+        self.image_processor = image_processor
+        self.tokenizer = tokenizer
         self.forward_attention_mask = forward_attention_mask
     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
         pixel_values = torch.stack([torch.tensor(f['pixel_values']) for f in features])
         input_ids = [f['input_ids'] for f in features]
-        batch = self.processor.tokenizer.pad(
+        batch = self.tokenizer.pad(
            {'input_ids':input_ids},
            return_tensors="pt",
            return_attention_mask=self.forward_attention_mask,
