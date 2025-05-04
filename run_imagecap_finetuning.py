@@ -281,6 +281,8 @@ def main():
         texts = batch[data_args.text_column_name]
         image_inputs = image_processor(images=images, return_tensors=None)
         text_inputs = tokenizer(texts, return_tensors=None)
+        logger.info(f"Image inputs: {image_inputs}")
+        logger.info(f"Text inputs: {text_inputs}")
         return {
             "pixel_values": image_inputs["pixel_values"],
             "input_ids": text_inputs["input_ids"] ,
