@@ -1,6 +1,6 @@
 {
-    "model_name_or_path": "nlpconnect/vit-gpt2-image-captioning",
-    "cache_dir": "./vit-gpt2-image-captioning-cache",
+    "model_name_or_path": "Salesforce/blip-image-captioning-base",
+    "cache_dir": "./blip-image-captioning-base-cache",
     "use_fast_tokenizer": true,
     "overwrite_vocabulary": false,
   
