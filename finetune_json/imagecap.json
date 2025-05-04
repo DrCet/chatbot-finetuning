@@ -4,12 +4,12 @@
     "use_fast_tokenizer": true,
     "overwrite_vocabulary": false,
   
-    "dataset_name": "johnslegers/Legacy-Mage-Hampsty",
+    "dataset_name": "lumenggan/avatar-the-last-airbender-tagged",
 
 
     "preprocessing_num_workers": 4,
     "image_column_name": "image",
-    "text_column_name": "prompt",
+    "text_column_name": "tags",
     "train_split_name": "train",
     "max_train_samples": 100,
     "max_eval_samples": 100,
