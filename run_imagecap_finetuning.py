@@ -134,7 +134,7 @@ class DataCollatorWithPadding:
         for i, f in enumerate(features):
             if 'input_ids' not in f:
                 logger.error(f"Missing input_ids in feature {i}: {f.keys()}")
-                raise ValueError(f"Feature {i} lacks input_ids: {f}")
+                raise ValueError(f"Feature {i} lacks input_ids: {f.keys()}")
         pixel_values = torch.stack([torch.tensor(f['pixel_values']) for f in features])
         input_ids = [f['input_ids'] for f in features]
         batch = self.tokenizer.pad(
