@@ -149,7 +149,7 @@ class DataCollatorWithPadding:
        )
         batch['pixel_values'] = pixel_values
         labels = batch["input_ids"].clone()
-        labels[labels == self.processor.tokenizer.pad_token_id] = -100
+        labels[labels == self.tokenizer.pad_token_id] = -100
         batch["labels"] = labels
         return batch
 
