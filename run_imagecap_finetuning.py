@@ -137,7 +137,7 @@ class DataCollatorWithPadding:
                 logger.error(f"Missing input_ids in feature {i}: {f.keys()}")
                 e += 1
         if e > 0:
-            raise ValueError(f"Found {e}/{len(features)} features without input_ids.")
+            raise ValueError(f"Found {e}/{len(features)} features without input_ids. \n Feautures: {features}")
 
         pixel_values = torch.stack([torch.tensor(f['pixel_values']) for f in features])
         input_ids = [f['input_ids'] for f in features]
