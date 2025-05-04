@@ -136,7 +136,7 @@ class DataCollatorWithPadding:
         batch = self.tokenizer.pad(
            {'input_ids':input_ids},
            return_tensors="pt",
-           return_attention_mask=self.forward_attention_mask,
+           return_attention_mask=self.forward_attention_mask,   
            padding=True
        )
         batch['pixel_values'] = pixel_values
@@ -278,7 +278,7 @@ def main():
 
     def prepare_dataset(batch):
         images = batch[data_args.image_column_name]
-        texts = batch[data_args.text_column_name]
+        texts = [str(t) if t is not None else "" for t in batch[data_args.text_column_name]]
         image_inputs = image_processor(images=images, return_tensors=None)
         text_inputs = tokenizer(texts, return_tensors=None)
         logger.info(f"Image inputs: {image_inputs}")
