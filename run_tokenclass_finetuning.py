@@ -210,7 +210,6 @@ def main():
             label_set.update(example[data_args.label_column_name])
         label_list = sorted(label_set)
 
-    label_list = raw_datasets["train"].features[data_args.label_column_name].feature._str2int.keys()
     label2id = {label: i for i, label in enumerate(set(label for sublist in label_list for label in sublist))}
     id2label = {i: label for label, i in label2id.items()}
 
