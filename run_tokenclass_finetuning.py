@@ -8,7 +8,7 @@ from transformers import (
     AutoConfig,
     HfArgumentParser,
 )
-from datasets import load_dataset, DatasetDict
+from datasets import load_dataset, DatasetDict, ClassLabel, Sequence
 import datasets
 from dataclasses import dataclass, field
 from typing import Dict, List, Union
@@ -190,6 +190,25 @@ def main():
         cache_dir=model_args.cache_dir,
         use_fast=model_args.use_fast_tokenizer,
     )
+
+    # Get label information
+    label_feature = raw_datasets["train"].features[data_args.label_column_name]
+    if isinstance(label_feature, Sequence):
+        label_feature = label_feature.feature  # Get inner feature for Sequence
+
+    if isinstance(label_feature, ClassLabel):
+        # Case 1: ClassLabel (e.g., CoNLL-2003)
+        label_list = label_feature.names
+    elif hasattr(label_feature, '_str2int'):
+        # Case 2: Integer labels with _str2int (e.g., WIESP2022-NER ner_ids)
+        label_list = list(label_feature._str2int.keys())
+    else:
+        # Case 3: String labels (e.g., WIESP2022-NER ner_tags)
+        # Collect unique labels from the dataset
+        label_set = set()
+        for example in raw_datasets["train"]:
+            label_set.update(example[data_args.label_column_name])
+        label_list = sorted(label_set)
 
     label_list = raw_datasets["train"].features[data_args.label_column_name].feature._str2int.keys()
     label2id = {label: i for i, label in enumerate(set(label for sublist in label_list for label in sublist))}
