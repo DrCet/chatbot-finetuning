@@ -221,11 +221,11 @@ def main():
 
     def prepare_dataset(batch):
         texts = batch[data_args.text_column_name]
-        texts = [list( text) for text in texts]  # Convert to list of strings
         raw_labels = batch[data_args.label_column_name]
         
         text_inputs = tokenizer(
             texts,
+            is_split_into_words=True,
             return_tensors=None
         )
         labels = []
@@ -243,6 +243,8 @@ def main():
                     aligned_labels.append(-100) 
                 prev_word_idx = word_idx
             labels.append(aligned_labels)
+        text_inputs["labels"] = labels
+        return text_inputs
 
     remove_columns = raw_datasets["train"].column_names
     with training_args.main_process_first(desc="dataset map pre-processing"):
