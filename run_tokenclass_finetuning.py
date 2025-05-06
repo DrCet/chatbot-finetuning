@@ -104,25 +104,39 @@ class DataTrainingArguments:
     )
 
 class TokenClassDatacollator:
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, label_pad_token_id: int = -100):
         self.tokenizer = tokenizer
-    def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, List[int]]:
-        input_ids =[f['input_ids'] for f in features]
-        labels = [f['labels'] for f in features]
+        self.label_pad_token_id = label_pad_token_id
+
+    def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+        input_ids = [f["input_ids"] for f in features]
+        labels = [f["labels"] for f in features]
+
+        # Pad input_ids and generate attention_mask
         encodings = self.tokenizer.pad(
-            {'input_ids':input_ids},
+            {"input_ids": input_ids},
             padding=True,
             return_tensors="pt",
+            return_attention_mask=True,
         )
+
+        # Pad labels to match input_ids length
         padded_labels = []
-        for i, label in enumerate(labels):
-            label = label + [0] * (len(encodings['input_ids'][i]) - len(label) - 2)  # Adjust for [CLS], [SEP]
-            padded_labels.append([-100] + label + [-100])  # Add -100 for [CLS], [SEP]
+        max_length = encodings["input_ids"].shape[1]  # Padded length
+        for label in labels:
+            # Truncate or pad labels to match max_length
+            label_len = len(label)
+            if label_len > max_length:
+                padded_label = label[:max_length]
+            else:
+                padded_label = label + [self.label_pad_token_id] * (max_length - label_len)
+            padded_labels.append(padded_label)
+
         padded_labels = torch.tensor(padded_labels)
         return {
-            'input_ids': encodings['input_ids'],
-            'attention_mask': encodings['attention_mask'],
-            'labels': padded_labels,
+            "input_ids": encodings["input_ids"],
+            "attention_mask": encodings["attention_mask"],
+            "labels": padded_labels,
         }
 def main():
     # 1. Parse the arguments
