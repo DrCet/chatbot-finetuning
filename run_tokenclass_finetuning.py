@@ -211,6 +211,7 @@ def main():
 
     config.label2id = label2id
     config.id2label = id2label
+    config.num_labels = len(label2id)
 
     # 5. Preprocess the datasets
     with training_args.main_process_first():
