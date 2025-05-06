@@ -242,7 +242,7 @@ def main():
             raw_datasets["validation"] = raw_datasets["validation"].select(range(data_args.max_eval_samples))
 
     # 7. Load pretrained model
-    model = AutoModelForImageClassification(
+    model = AutoModelForImageClassification.from_pretrained(
         model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
         config=config
     )
