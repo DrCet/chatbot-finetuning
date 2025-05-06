@@ -22,6 +22,5 @@
     "text_column_name": "tokens",
     "label_column_name": "ner_tags",
     "train_split_name": "train",
-    "eval_split_name": "validation",
     "preprocessing_num_workers": 4
 }
