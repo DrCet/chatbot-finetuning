@@ -18,7 +18,7 @@
     "logging_dir": "./logs",
     "report_to": "tensorboard",
 
-    "dataset_name_or_path": "adsabs/WIESP2022-NER",
+    "dataset_name_or_path": "parsa-mhmdi/Medical_NER",
     "text_column_name": "tokens",
     "label_column_name": "ner_tags",
     "train_split_name": "train",
