@@ -226,6 +226,7 @@ def main():
         cache_dir=model_args.cache_dir,
         label2id=label2id,
         id2label=id2label,
+        num_labels=len(label2id)
     )
 
     image_processor = AutoImageProcessor.from_pretrained(
@@ -244,7 +245,9 @@ def main():
     # 7. Load pretrained model
     model = AutoModelForImageClassification.from_pretrained(
         model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
-        config=config
+        config=config,
+        ignore_mismatched_sizes=True,
+        cache_dir=model_args.cache_dir,
     )
 
     # 8. Save config and processor
@@ -255,7 +258,9 @@ def main():
 
     # 9. Define data collator
     data_collator = DataCollatorWithPadding(
-        image_processor=image_processor
+        image_processor=image_processor,
+        data_args=data_args,
+        label2id=label2id
     ) 
 
     # 10. Training and evaluation
