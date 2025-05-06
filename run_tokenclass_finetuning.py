@@ -261,7 +261,7 @@ def main():
         return
 
     # 7. Load pretrained model
-    model = AutoModelForTokenClassification(
+    model = AutoModelForTokenClassification.from_pretrained(
         model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
         config=config
     )
