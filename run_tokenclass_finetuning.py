@@ -179,19 +179,6 @@ def main():
     if data_args.label_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.label_column_name} not found in dataset.")
 
-    # 4. Load processor and config
-    # The config is here for the future use 
-    config = AutoConfig.from_pretrained(
-        model_args.config_name_or_path if model_args.config_name_or_path else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        use_fast=model_args.use_fast_tokenizer,
-    )
-
     # Get label information
     label_feature = raw_datasets["train"].features[data_args.label_column_name]
     if isinstance(label_feature, Sequence):
@@ -213,6 +200,22 @@ def main():
     config.label2id = label2id
     config.id2label = id2label
     config.num_labels = len(label2id)
+    # 4. Load processor and config
+    # The config is here for the future use 
+    config = AutoConfig.from_pretrained(
+        model_args.config_name_or_path if model_args.config_name_or_path else model_args.model_name_or_path,
+        num_labels=len(label2id),  # Set to 63
+        label2id=label2id,
+        id2label=id2label,
+        cache_dir=model_args.cache_dir,
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        use_fast=model_args.use_fast_tokenizer,
+    )
+
 
     # 5. Preprocess the datasets
     with training_args.main_process_first():
@@ -264,10 +267,9 @@ def main():
 
     # 7. Load pretrained model
     model = AutoModelForTokenClassification.from_pretrained(
-        model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
+        model_args.model_name_or_path,
         config=config,
-        ignore_mismatched_sizes=True,
-        num_labels=len(label2id),
+        ignore_mismatched_sizes=True,  # Handle classification head mismatch
         cache_dir=model_args.cache_dir,
     )
     if model_args.overwrite_vocabulary:
