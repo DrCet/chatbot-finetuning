@@ -1,6 +1,6 @@
 {
-    "model_name_or_path": "dslim/bert-base-NER",
-    "cache_dir": "./bert-base-NER-cache",
+    "model_name_or_path": "blaze999/Medical-NER",
+    "cache_dir": "./Medical-NER-cache",
 
     "do_train": true,
     "do_eval": true,
