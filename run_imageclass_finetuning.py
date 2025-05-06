@@ -111,17 +111,17 @@ class DataCollatorWithPadding:
     def __call__(self, batch):
         out = {}
         
-        images = batch[self.data_args.image_column_name]
+        images = [sample[self.data_args.image_column_name] for sample in batch]
         pixel_values = self.image_processor(
             images=images,
             return_tensors="pt",
         ).pixel_values
 
-        labels = batch[self.data_args.label_column_name]
+        labels = [sample[self.data_args.label_column_name] for sample in batch]
         labels = [self.label2id[label] for label in labels]
         out['pixel_values'] = pixel_values
         out["labels"] = labels
-        return batch
+        return out
     
 def main():
     # 1. Parse the arguments
