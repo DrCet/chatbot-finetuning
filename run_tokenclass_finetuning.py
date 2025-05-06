@@ -1,5 +1,3 @@
-from ast import Num
-from networkx import overall_reciprocity
 from transformers.trainer_utils import is_main_process
 import transformers
 from transformers import (
@@ -209,15 +207,18 @@ def main():
         label_feature = label_feature.feature  # Get inner feature for Sequence
 
     if isinstance(label_feature, ClassLabel):
-        label_list = label_feature.names
+        label_list = label_feature.names  # Use predefined labels if available
     elif hasattr(label_feature, '_str2int'):
         label_list = list(label_feature._str2int.keys())
     else:
+        # Collect labels from ALL splits to ensure completeness
         label_set = set()
-        for example in raw_datasets["train"]:
-            label_set.update(example[data_args.label_column_name])
+        for split in raw_datasets.values():  # Iterate over train, validation, etc.
+            for example in split:
+                label_set.update(example[data_args.label_column_name])
         label_list = sorted(label_set)
 
+    # Create label mappings
     label2id = {label: i for i, label in enumerate(label_list)}
     id2label = {i: label for label, i in label2id.items()}
 
