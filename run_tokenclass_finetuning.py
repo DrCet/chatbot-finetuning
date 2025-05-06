@@ -1,4 +1,5 @@
 from ast import Num
+from networkx import overall_reciprocity
 from transformers.trainer_utils import is_main_process
 import transformers
 from transformers import (
@@ -42,6 +43,14 @@ class TokenClassModelArguments:
     use_fast_tokenizer: bool = field(
         default=True,
         metadata={"help": "Whether to use fast tokenizer or not"},
+    )
+    ovewrite_vocabulary: bool = field(
+        default=False,
+        metadata={"help": "Whether to overwrite the vocabulary of the model with the tokenizer's vocabulary"},
+    )
+    overwrite_cache: bool = field(
+        default=False,
+        metadata={"help": "Overwrite the cached training and evaluation sets"},
     )
 @dataclass
 class TokenClassTrainingArguments(TrainingArguments):
