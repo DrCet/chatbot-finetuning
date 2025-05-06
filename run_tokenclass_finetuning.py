@@ -1,3 +1,4 @@
+from ast import Num
 from transformers.trainer_utils import is_main_process
 import transformers
 from transformers import (
@@ -264,7 +265,10 @@ def main():
     # 7. Load pretrained model
     model = AutoModelForTokenClassification.from_pretrained(
         model_args.model_name_or_path if model_args.model_name_or_path else model_args.config_name_or_path,
-        config=config
+        config=config,
+        ignore_mismatched_sizes=True,
+        num_labels=len(label2id),
+        cache_dir=model_args.cache_dir,
     )
     if model_args.overwrite_vocabulary:
         try:
