@@ -156,7 +156,7 @@ def main():
     raw_datasets = DatasetDict()
     if training_args.do_train:
         raw_datasets['train'] = load_dataset(
-            data_args.dataset_name,
+            data_args.dataset_name_or_path,
             data_args.dataset_config_name,
             split=data_args.train_split_name,
             cache_dir=model_args.cache_dir
@@ -174,9 +174,9 @@ def main():
         raw_datasets["validation"] = new_dataset["test"]
 
     if data_args.image_column_name not in next(iter(raw_datasets.values())).column_names:
-        raise ValueError(f"Column {data_args.image_column_name} not found in dataset.")
-    if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.text_column_name} not found in dataset.")
+    if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
+        raise ValueError(f"Column {data_args.label_column_name} not found in dataset.")
 
     # 4. Load processor and config
     # The config is here for the future use 
