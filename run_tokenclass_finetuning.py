@@ -116,6 +116,7 @@ class TokenClassDatacollator:
         encodings = self.tokenizer.pad(
             {"input_ids": input_ids},
             padding=True,
+            max_length=512,  # Enforce max length
             return_tensors="pt",
             return_attention_mask=True,
         )
@@ -253,8 +254,11 @@ def main():
         
         text_inputs = tokenizer(
             texts,
-            is_split_into_words=True,
-            return_tensors=None
+            is_split_into_words=True,  # For pre-tokenized inputs
+            truncation=True,
+            max_length=512,  # Enforce BERT's max length
+            padding=False,
+            return_tensors=None,
         )
         labels = []
         for i, label in enumerate(raw_labels):
