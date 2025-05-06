@@ -220,7 +220,8 @@ def main():
             raw_datasets["validation"] = raw_datasets["validation"].select(range(data_args.max_eval_samples))
 
     def prepare_dataset(batch):
-        texts = batch[list(data_args.text_column_name)]
+        texts = batch[data_args.text_column_name]
+        texts = [list( text) for text in texts]  # Convert to list of strings
         raw_labels = batch[data_args.label_column_name]
         
         text_inputs = tokenizer(
