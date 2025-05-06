@@ -44,7 +44,7 @@ class TokenClassModelArguments:
         default=True,
         metadata={"help": "Whether to use fast tokenizer or not"},
     )
-    ovewrite_vocabulary: bool = field(
+    overwrite_vocabulary: bool = field(
         default=False,
         metadata={"help": "Whether to overwrite the vocabulary of the model with the tokenizer's vocabulary"},
     )
