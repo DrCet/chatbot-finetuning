@@ -1,0 +1,26 @@
+{
+    "model_name_or_path": "Falconsai/nsfw_image_detection",
+    "cache_dir": "./nsfw_image_detection_cache",
+
+    "do_train": true,
+    "do_eval": true,
+    "per_device_train_batch_size": 2,
+    "per_device_eval_batch_size": 2,
+    "max_steps": 100,
+    "gradient_accumulation_steps": 2,  
+    "weight_decay": 0.01,
+
+    "lr_scheduler_type": "cosine",
+    "warmup_steps": 10,
+
+    "eval_steps": 10,
+    "logging_steps": 10,
+    "logging_dir": "./logs",
+    "report_to": "tensorboard",
+
+    "dataset_name_or_path": "Falah/Alzheimer_MRI",
+    "image_column_name": "image",
+    "label_column_name": "label",
+    "train_split_name": "train",
+    "validation_split_name": "test"
+}
