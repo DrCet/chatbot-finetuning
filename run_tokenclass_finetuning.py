@@ -197,9 +197,6 @@ def main():
     label2id = {label: i for i, label in enumerate(label_list)}
     id2label = {i: label for label, i in label2id.items()}
 
-    config.label2id = label2id
-    config.id2label = id2label
-    config.num_labels = len(label2id)
     # 4. Load processor and config
     # The config is here for the future use 
     config = AutoConfig.from_pretrained(
@@ -209,6 +206,9 @@ def main():
         id2label=id2label,
         cache_dir=model_args.cache_dir,
     )
+    config.label2id = label2id
+    config.id2label = id2label
+    config.num_labels = len(label2id)
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
