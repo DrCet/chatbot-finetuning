@@ -55,7 +55,7 @@ class DataTrainingArguments:
         default=None,
         metadata={"help": "The name of the dataset to use (via the datasets library)."},
     )
-    dataset_config_name: str = field(
+    dataset_subset_name: str = field(
         default=None,
         metadata={"help": "The configuration name of the dataset to use (via the datasets library)."},
     )
@@ -166,7 +166,7 @@ def main():
     if training_args.do_train:
         raw_datasets['train'] = load_dataset(
             data_args.dataset_name_or_path,
-            data_args.dataset_config_name,
+            data_args.dataset_subset_name,
             split=data_args.train_split_name,
             cache_dir=model_args.cache_dir
         )
