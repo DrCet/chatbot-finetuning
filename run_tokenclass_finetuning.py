@@ -197,20 +197,16 @@ def main():
         label_feature = label_feature.feature  # Get inner feature for Sequence
 
     if isinstance(label_feature, ClassLabel):
-        # Case 1: ClassLabel (e.g., CoNLL-2003)
         label_list = label_feature.names
     elif hasattr(label_feature, '_str2int'):
-        # Case 2: Integer labels with _str2int (e.g., WIESP2022-NER ner_ids)
         label_list = list(label_feature._str2int.keys())
     else:
-        # Case 3: String labels (e.g., WIESP2022-NER ner_tags)
-        # Collect unique labels from the dataset
         label_set = set()
         for example in raw_datasets["train"]:
             label_set.update(example[data_args.label_column_name])
         label_list = sorted(label_set)
 
-    label2id = {label: i for i, label in enumerate(set(label for sublist in label_list for label in sublist))}
+    label2id = {label: i for i, label in enumerate(label_list)}
     id2label = {i: label for label, i in label2id.items()}
 
     config.label2id = label2id
@@ -224,7 +220,7 @@ def main():
             raw_datasets["validation"] = raw_datasets["validation"].select(range(data_args.max_eval_samples))
 
     def prepare_dataset(batch):
-        texts = batch[data_args.text_column_name]
+        texts = batch[list(data_args.text_column_name)]
         raw_labels = batch[data_args.label_column_name]
         
         text_inputs = tokenizer(
@@ -233,18 +229,17 @@ def main():
         )
         labels = []
         for i, label in enumerate(raw_labels):
-            word_ids = text_inputs.word_ids(batch_index=i)  # Maps subwords to word indices
+            word_ids = text_inputs.word_ids(batch_index=i)  
             aligned_labels = []
             prev_word_idx = None
             for word_idx in word_ids:
-                if word_idx is None:  # Special tokens ([CLS], [SEP])
+                if word_idx is None:  
                     aligned_labels.append(-100)
-                elif word_idx != prev_word_idx:  # First subword of a word
-                    # Remap dataset ner_ids to model IDs
-                    label = id2label[label[word_idx]]  # e.g., 62 -> "O"
-                    aligned_labels.append(label2id[label])  # e.g., "O" -> 0
-                else:  # Subword continuation
-                    aligned_labels.append(-100)  # Ignore in loss
+                elif word_idx != prev_word_idx:  
+                    label = id2label[label[word_idx]]  
+                    aligned_labels.append(label2id[label])
+                else: 
+                    aligned_labels.append(-100) 
                 prev_word_idx = word_idx
             labels.append(aligned_labels)
 
