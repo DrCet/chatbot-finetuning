@@ -173,9 +173,9 @@ def main():
         raw_datasets["train"] = new_dataset["train"]
         raw_datasets["validation"] = new_dataset["test"]
 
-    if data_args.image_column_name not in next(iter(raw_datasets.values())).column_names:
-        raise ValueError(f"Column {data_args.text_column_name} not found in dataset.")
     if data_args.text_column_name not in next(iter(raw_datasets.values())).column_names:
+        raise ValueError(f"Column {data_args.text_column_name} not found in dataset.")
+    if data_args.label_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.label_column_name} not found in dataset.")
 
     # 4. Load processor and config
