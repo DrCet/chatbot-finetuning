@@ -238,7 +238,7 @@ def main():
                     aligned_labels.append(-100)
                 elif word_idx != prev_word_idx:  
                     label = label2id[label[word_idx]]  
-                    aligned_labels.append(label2id[label])
+                    aligned_labels.append(label)
                 else: 
                     aligned_labels.append(-100) 
                 prev_word_idx = word_idx
