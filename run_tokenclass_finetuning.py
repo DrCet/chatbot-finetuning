@@ -237,7 +237,7 @@ def main():
                 if word_idx is None:  
                     aligned_labels.append(-100)
                 elif word_idx != prev_word_idx:  
-                    label = id2label[label[word_idx]]  
+                    label = label2id[label[word_idx]]  
                     aligned_labels.append(label2id[label])
                 else: 
                     aligned_labels.append(-100) 
