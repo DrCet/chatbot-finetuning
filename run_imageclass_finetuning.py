@@ -114,7 +114,8 @@ class DataCollatorWithPadding:
             images = [sample[self.data_args.image_column_name] for sample in batch]
             labels = [sample[self.data_args.label_column_name] for sample in batch]
         except KeyError as e:
-            raise KeyError(f"Column {e} not found in batch. Available keys: {batch[0].keys()}")
+            raise KeyError(f"Column {e} not found in batch. Available keys: {batch[0].keys()} - \nBatch: {batch}")
+
         
         pixel_values = self.image_processor(
             images=images,
@@ -122,7 +123,7 @@ class DataCollatorWithPadding:
         ).pixel_values
 
         labels = [self.label2id[label] for label in labels]
-        label_ids = torch.tensor(label_ids)
+        label_ids = torch.tensor(labels)
         return {
             'pixel_values': pixel_values,
             'labels': label_ids
