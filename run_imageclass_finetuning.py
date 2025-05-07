@@ -274,7 +274,8 @@ def main():
     data_collator = DataCollatorWithPadding(
         image_processor=image_processor,
         data_args=data_args,
-        label2id=label2id
+        label2id=label2id,
+        id2label=id2label
     ) 
 
     # Need a custom trainer to override the get_train_dataloader method
