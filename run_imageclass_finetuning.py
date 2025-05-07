@@ -6,6 +6,7 @@ import logging
 from transformers.trainer_utils import is_main_process
 import datasets
 from datasets import DatasetDict, load_dataset, ClassLabel, Sequence
+import torch
 
 from transformers import (
     TrainingArguments,
@@ -109,19 +110,23 @@ class DataCollatorWithPadding:
         self.data_args = data_args
         self.label2id = label2id
     def __call__(self, batch):
-        out = {}
+        try:
+            images = [sample[self.data_args.image_column_name] for sample in batch]
+            labels = [sample[self.data_args.label_column_name] for sample in batch]
+        except KeyError as e:
+            raise KeyError(f"Column {e} not found in batch. Available keys: {batch[0].keys()}")
         
-        images = [sample[self.data_args.image_column_name] for sample in batch]
         pixel_values = self.image_processor(
             images=images,
             return_tensors="pt",
         ).pixel_values
 
-        labels = [sample[self.data_args.label_column_name] for sample in batch]
         labels = [self.label2id[label] for label in labels]
-        out['pixel_values'] = pixel_values
-        out["labels"] = labels
-        return out
+        label_ids = torch.tensor(label_ids)
+        return {
+            'pixel_values': pixel_values,
+            'labels': label_ids
+        }
     
 def main():
     # 1. Parse the arguments
