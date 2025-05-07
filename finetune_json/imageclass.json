@@ -22,5 +22,5 @@
     "image_column_name": "image",
     "label_column_name": "label",
     "train_split_name": "train",
-    "eval_split_name": "test"
+    "eval_split_name": "valid"
 }
