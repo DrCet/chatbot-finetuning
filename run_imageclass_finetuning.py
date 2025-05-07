@@ -192,6 +192,9 @@ def main():
         raise ValueError(f"Column {data_args.image_column_name} not found in dataset.")
     if data_args.label_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.label_column_name} not found in dataset.")
+    
+    logger.info(f"Train columns: {raw_datasets['train'].column_names}")
+    logger.info(f"First sample: {raw_datasets['train'][0]}")
 
     label_feature = raw_datasets["train"].features[data_args.label_column_name]
 
