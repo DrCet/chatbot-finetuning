@@ -7,6 +7,7 @@ from transformers.trainer_utils import is_main_process
 import datasets
 from datasets import DatasetDict, load_dataset, ClassLabel, Sequence
 import torch
+from torch.utils.data import DataLoader
 
 from transformers import (
     TrainingArguments,
@@ -284,10 +285,18 @@ def main():
     # and the default collator does not support image data
     class CustomTrainer(Trainer):
         def get_train_dataloader(self):
-            from torch.utils.data import DataLoader
             return DataLoader(
                 self.train_dataset,
                 batch_size=self.args.per_device_train_batch_size,
+                collate_fn=self.data_collator,
+                num_workers=self.args.dataloader_num_workers,
+                pin_memory=self.args.dataloader_pin_memory,
+            )
+        def get_eval_dataloader(self, eval_dataset=None):
+            eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
+            return DataLoader(
+                eval_dataset,
+                batch_size=self.args.per_device_eval_batch_size,
                 collate_fn=self.data_collator,
                 num_workers=self.args.dataloader_num_workers,
                 pin_memory=self.args.dataloader_pin_memory,
