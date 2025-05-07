@@ -111,13 +111,13 @@ class DataCollatorWithPadding:
         self.data_args = data_args
         self.label2id = label2id
     def __call__(self, batch):
-        try:
-            images = [sample[self.data_args.image_column_name] for sample in batch]
-            labels = [sample[self.data_args.label_column_name] for sample in batch]
-        except KeyError as e:
-            raise KeyError(f"Column {e} not found in batch. Available keys: {batch[0].keys()} - \nBatch: {batch}")
+        images = [sample[self.data_args.image_column_name].convert("RGB") 
+            if sample[self.data_args.image_column_name].mode == "L" 
+            else sample[self.data_args.image_column_name] 
+            for sample in batch]
+        labels = [sample[self.data_args.label_column_name] for sample in batch]
 
-        
+   
         pixel_values = self.image_processor(
             images=images,
             return_tensors="pt",
