@@ -193,9 +193,6 @@ def main():
     if data_args.label_column_name not in next(iter(raw_datasets.values())).column_names:
         raise ValueError(f"Column {data_args.label_column_name} not found in dataset.")
     
-    logger.info(f"Train columns: {raw_datasets['train'].column_names}")
-    logger.info(f"First sample: {raw_datasets['train'][0]}")
-
     label_feature = raw_datasets["train"].features[data_args.label_column_name]
 
     # Handle different label feature types
@@ -272,8 +269,23 @@ def main():
         label2id=label2id
     ) 
 
+    # Need a custom trainer to override the get_train_dataloader method
+    # to use the custom data collator
+    # This is because the default trainer uses the default data collator which does not support image data
+    # and the default collator does not support image data
+    class CustomTrainer(Trainer):
+        def get_train_dataloader(self):
+            from torch.utils.data import DataLoader
+            return DataLoader(
+                self.train_dataset,
+                batch_size=self.args.per_device_train_batch_size,
+                collate_fn=self.data_collator,
+                num_workers=self.args.dataloader_num_workers,
+                pin_memory=self.args.dataloader_pin_memory,
+            )
+
     # 10. Training and evaluation
-    trainer = Trainer(
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=raw_datasets["train"] if training_args.do_train else None,
