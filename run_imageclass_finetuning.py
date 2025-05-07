@@ -105,7 +105,7 @@ class DataCollatorWithPadding:
         processor ([`PreTrainedProcessor`]): The processor used for processing the inputs.
 
     '''
-    def __init__(self, image_processor,  data_args, label2id):
+    def __init__(self, image_processor,  data_args, label2id, id2label):
         self.image_processor = image_processor
         self.data_args = data_args
         self.label2id = label2id
@@ -122,8 +122,16 @@ class DataCollatorWithPadding:
             return_tensors="pt",
         ).pixel_values
 
-        labels = [self.label2id[label] for label in labels]
-        label_ids = torch.tensor(labels)
+        label_ids = []
+        for label in labels:
+            if label in self.label2id.keys():
+                label_ids.append(self.label2id[label])
+            else:
+                label_ids = labels
+                break
+
+
+        label_ids = torch.tensor(label_ids)
         return {
             'pixel_values': pixel_values,
             'labels': label_ids
