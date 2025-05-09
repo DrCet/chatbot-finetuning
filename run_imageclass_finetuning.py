@@ -267,7 +267,7 @@ def main():
         if isinstance(image_data, Image.Image):
             return {"image":image_data, "label":label}
         try: 
-            response = requests.get(image_data, timeout=5)
+            response = requests.get(image_data, timeout=1)
             response.raise_for_status()
             img = Image.open(BytesIO(response.content))
             if img is None:
@@ -288,7 +288,7 @@ def main():
         )
         return filtered_dataset
     
-    
+
     if training_args.do_train:
         raw_datasets["train"] = process_dataset(
             raw_datasets["train"]
