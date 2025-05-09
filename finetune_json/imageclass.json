@@ -23,5 +23,5 @@
     "label_column_name": "label",
     "train_split_name": "train",
     "eval_split_name": "validation",
-    "data_subset_name":"full_size"
+    "dataset_subset_name":"full_size"
 }
