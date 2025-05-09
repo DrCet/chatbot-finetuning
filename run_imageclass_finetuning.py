@@ -103,6 +103,12 @@ class DataTrainingArguments:
             "help": "The name of the evaluation split in the dataset."
         },
     )
+    requests_timeout: int = field(
+        default=1,
+        metadata={
+            "help": "Time to end a get method"
+        }
+    )
 class DataCollatorWithPadding:
     '''
     Data collator that will dynamically pad the inputs received, as well as the labels.
@@ -267,7 +273,7 @@ def main():
         if isinstance(image_data, Image.Image):
             return {"image":image_data, "label":label}
         try: 
-            response = requests.get(image_data, timeout=1)
+            response = requests.get(image_data, timeout=data_args.requests_timeout)
             response.raise_for_status()
             img = Image.open(BytesIO(response.content))
             if img is None:
