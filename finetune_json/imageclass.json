@@ -18,7 +18,7 @@
     "logging_dir": "./logs",
     "report_to": "tensorboard",
 
-    "dataset_name_or_path": "zh-plus/tiny-imagenet",
+    "dataset_name_or_path": "BTX24/tekno21-brain-stroke-dataset-multi",
     "image_column_name": "image",
     "label_column_name": "label",
     "train_split_name": "train",
