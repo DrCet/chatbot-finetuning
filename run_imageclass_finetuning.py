@@ -5,9 +5,13 @@ import os
 import logging
 from transformers.trainer_utils import is_main_process
 import datasets
-from datasets import DatasetDict, load_dataset, ClassLabel, Sequence
+from datasets import DatasetDict, load_dataset, ClassLabel, Sequence, Dataset
 import torch
 from torch.utils.data import DataLoader
+import requests
+from PIL import Image
+from io import BytesIO
+
 
 from transformers import (
     TrainingArguments,
@@ -256,6 +260,43 @@ def main():
             raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
         if data_args.max_eval_samples is not None:
             raw_datasets["validation"] = raw_datasets["validation"].select(range(data_args.max_eval_samples))
+
+    def prepare_image(sample):
+        image_data = sample[data_args.image_column_name]
+        label = sample[data_args.label_column_name]
+        if isinstance(image_data, Image.Image):
+            return {"image":image_data, "label":label}
+        try: 
+            response = requests.get(image_data, timeout=5)
+            response.raise_for_status()
+            img = Image.open(BytesIO(response.content))
+            if img is None:
+                logger.warning(f"Invalid image from URL {image_data}, skipping sample.")
+                return {"image":None, "label":None}
+            return {"image":img, "label":label}
+        except (requests.RequestException, IOError) as e:
+            logger.warning(f"Skipping sample due to error fetching URL {image_data}")
+            return {"image":None, "label":None}
+    
+    def process_dataset(dataset:Dataset):
+        mapped_dataset = dataset.map(
+            lambda x: prepare_image(x),
+            desc="Processing images"
+        )
+        filtered_dataset = mapped_dataset.filter(
+            lambda x: x['image'] is not None and x['label'] is not None
+        )
+        return filtered_dataset
+    
+    
+    if training_args.do_train:
+        raw_datasets["train"] = process_dataset(
+            raw_datasets["train"]
+        )
+    if training_args.do_eval:
+        raw_datasets["validation"] = process_dataset(
+            raw_datasets["validation"]
+        )
 
     # 7. Load pretrained model
     model = AutoModelForImageClassification.from_pretrained(
