@@ -21,5 +21,7 @@
     "dataset_name_or_path": "frgfm/imagenette",
     "image_column_name": "image",
     "label_column_name": "label",
-    "train_split_name": "full_size"
+    "train_split_name": "train",
+    "eval_split_name": "validation",
+    "data_subset_name":"full_size"
 }
