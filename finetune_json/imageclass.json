@@ -1,6 +1,6 @@
 {
-    "model_name_or_path": "Falconsai/nsfw_image_detection",
-    "cache_dir": "./nsfw_image_detection_cache",
+    "model_name_or_path": "microsoft/resnet-50",
+    "cache_dir": "./resnet-50-cache",
 
     "do_train": true,
     "do_eval": true,
@@ -18,8 +18,8 @@
     "logging_dir": "./logs",
     "report_to": "tensorboard",
 
-    "dataset_name_or_path": "BTX24/tekno21-brain-stroke-dataset-multi",
+    "dataset_name_or_path": "frgfm/imagenette",
     "image_column_name": "image",
     "label_column_name": "label",
-    "train_split_name": "train"
+    "train_split_name": "full_size"
 }
