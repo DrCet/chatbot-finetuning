@@ -139,7 +139,7 @@ class DataCollatorWithPadding:
         if e > 0:
             raise ValueError(f"Found {e}/{len(features)} features without input_ids.")
 
-        pixel_values = torch.stack([torch.tensor(f['pixel_values']) for f in features])
+        pixel_values = torch.stack([torch.tensor(f['pixel_values']).squeeze(0) for f in features])
         input_ids = [f['input_ids'] for f in features]
         batch = self.tokenizer.pad(
            {'input_ids':input_ids},
