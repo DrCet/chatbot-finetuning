@@ -264,7 +264,6 @@ def main():
             data_args.dataset_config_name,
             split=data_args.train_split_name,
             cache_dir=model_args.cache_dir,
-            token=model_args.token,
         )
 
     # Load evaluation dataset
@@ -274,7 +273,6 @@ def main():
             data_args.dataset_config_name,
             split=data_args.eval_split_name,
             cache_dir=model_args.cache_dir,
-            token=model_args.token,
         )
 
     # For CausalLM, make sure text_column_name exists
@@ -382,18 +380,12 @@ def main():
             model_args.model_name_or_path,
             config=config,
             cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,  # Fixed typo
-            token=model_args.token,
-            trust_remote_code=model_args.trust_remote_code,
         )
     elif model_args.model_type == "seq2seq":
         model = AutoModelForSeq2SeqLM.from_pretrained(
             model_args.model_name_or_path,
             config=config,
             cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            token=model_args.token,
-            trust_remote_code=model_args.trust_remote_code,
         )
     else:
         raise ValueError(f"Unsupported model_type: {model_args.model_type}. Must be 'causal-lm' or 'seq2seq'.")
