@@ -1,14 +1,17 @@
 
 from dataclasses import dataclass, field
+import re
 import sys
 import os
-from typing import Any, List, Dict, Union
-from huggingface_hub import resume_inference_endpoint
+from typing import List, Dict, Union
 import torch
 import logging
 from transformers.trainer_utils import is_main_process
 import datasets
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict, load_dataset, Dataset
+from PIL import Image
+import requests
+from io import BytesIO
 
 from transformers import (
     TrainingArguments,
@@ -78,12 +81,6 @@ class DataTrainingArguments:
             "value if set."
         },
     )
-    preprocessing_num_workers: int = field(
-        default=None,
-        metadata={
-            "help": "The number of processes to use for the preprocessing."
-        },
-    )
     image_column_name: str = field(
         default=None,
         metadata={
@@ -114,9 +111,12 @@ class DataTrainingArguments:
             "help": "The name of the evaluation split in the dataset."
         },
     )
-    preprocessing_batch_size: int = field(
-        default=1000,
-        metadata={"help": "Batch size for preprocessing."}
+    requests_timeout: int = field(
+        default=1,
+        metadata={
+            "help": "Maximum request time"
+        }
+
     )
 @dataclass
 class DataCollatorWithPadding:
@@ -284,27 +284,57 @@ def main():
         if data_args.max_eval_samples is not None:
             raw_datasets["validation"] = raw_datasets["validation"].select(range(data_args.max_eval_samples))
 
-    def prepare_dataset(batch):
-        images = batch[data_args.image_column_name]
-        texts = [str(t) if t is not None else "" for t in batch[data_args.text_column_name]]
-        image_inputs = image_processor(images=images, return_tensors=None)
-        text_inputs = tokenizer(texts, return_tensors=None)
-        logger.info(f"Image inputs: {image_inputs}")
-        logger.info(f"Text inputs: {text_inputs}")
-        return {
-            "pixel_values": image_inputs["pixel_values"],
-            "input_ids": text_inputs["input_ids"] ,
-            "attention_mask": text_inputs["attention_mask"]
-        }
+    def prepare_dataset(sample):
+        image = sample[data_args.image_column_name]
+        text = str(sample[data_args.text_column_name])
+        if isinstance(image, Image.Image):
+            image_input = image_processor(image, return_tensors=None)
+            text_input = tokenizer(text, return_tensors=None)
+
+            return {
+                "pixel_values": image_input["pixel_values"],
+                "input_ids": text_input["input_ids"] ,
+                "attention_mask": text_input["attention_mask"]
+            }
+        try: 
+            response = requests.get(image, timeout=data_args.requests_timeout)
+            response.raise_for_status()
+            img = Image.open(BytesIO(response.content))
+            if img is None:
+                logger.warning(f"Invalid image from URL {image}, skipping sample.")
+                return {"pixel_values":None, "input_ids":None, "attention_mask":None}
+            image_input = image_processor(img, return_tensors=None)
+            text_input = tokenizer(text, return_tensors=None)
+            return {
+                "pixel_values": image_input["pixel_values"],
+                "input_ids": text_input["input_ids"] ,
+                "attention_mask": text_input["attention_mask"]
+            }
+        except (requests.RequestException, IOError) as e:
+            logger.warning(f"Skipping sample due to error fetching URL {image}")
+            return {"pixel_values":None, "input_ids":None, "attention_mask":None}
+
 
     remove_columns = raw_datasets["train"].column_names
-    with training_args.main_process_first(desc="dataset map pre-processing"):
-        vectorized_datasets = raw_datasets.map(
-            prepare_dataset,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers or os.cpu_count(),
+    def process_dataset(dataset:Dataset):
+        PIL_dataset = dataset.map(
+            lambda x: prepare_dataset(x),
             remove_columns=remove_columns,
-            desc="Preprocess train dataset",
+            desc="Processing images"
+        )
+        filtered_dataset = PIL_dataset.filter(
+            lambda x: x['pixel_values'] is not None and x['input_ids'] is not None and x['attention_mask'] is not None
+        )
+        return filtered_dataset
+    
+    vectorized_datasets = DatasetDict()
+    if training_args.do_train:
+        vectorized_datasets["train"] = process_dataset(
+            raw_datasets["train"]
+        )
+    if training_args.do_eval:
+        vectorized_datasets["validation"] = process_dataset(
+            raw_datasets["validation"]
         )
     if data_args.preprocessing_only:
         cache = {k: v.cache_files for k, v in vectorized_datasets.items()}
